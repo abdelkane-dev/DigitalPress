@@ -1,0 +1,14 @@
+name: digitalpress_mobile
+description: Minimal Flutter client scaffold for DigitalPress
+version: 0.1.0
+environment:
+  sdk: '>=2.18.0 <3.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  http: ^0.13.0
+  provider: ^6.0.0
+
+flutter:
+  uses-material-design: true

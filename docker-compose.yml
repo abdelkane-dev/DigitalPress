@@ -1,0 +1,37 @@
+version: '3.8'
+services:
+  db:
+    image: postgres:15
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB:-digitalpress}
+      - POSTGRES_USER=${POSTGRES_USER:-dp_user}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-dp_pass}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    networks:
+      - dp_net
+
+  web:
+    build: ./back
+    command: sh -c "python manage.py migrate --noinput && python manage.py runserver 0.0.0.0:8000"
+    volumes:
+      - ./back:/app
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_HOST=db
+      - DATABASE_NAME=${POSTGRES_DB:-digitalpress}
+      - DATABASE_USER=${POSTGRES_USER:-dp_user}
+      - DATABASE_PASSWORD=${POSTGRES_PASSWORD:-dp_pass}
+      - SECRET_KEY=${SECRET_KEY}
+    depends_on:
+      - db
+    networks:
+      - dp_net
+
+volumes:
+  db_data:
+
+networks:
+  dp_net:
+    driver: bridge

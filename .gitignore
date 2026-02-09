@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.Python
+env/
+venv/
+.venv/
+back/.venv/
+
+# Django
+*.log
+local_settings.py
+db.sqlite3
+media/
+staticfiles/
+\n+# Env
+.env
+.env.*
+
+# Docker
+docker-compose.override.yml
+
+# IDEs
+.vscode/
+.idea/
+*.sublime-workspace
+*.sublime-project
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Flutter
+/build/
+/.dart_tool/
+/.packages
+/.flutter-plugins
+/.flutter-plugins-dependencies
