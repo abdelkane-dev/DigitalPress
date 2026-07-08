@@ -1,0 +1,66 @@
+# Miscellaneous
+*.class
+*.log
+*.pyc
+*.pyo
+*.py[cod]
+*.swp
+.DS_Store
+.atom/
+.build/
+.buildlog/
+.history
+.svn/
+.swiftpm/
+migrate_working_dir/
+Thumbs.db
+
+# IntelliJ/VS Code related
+*.iml
+*.ipr
+*.iws
+.idea/
+.vscode/
+*.sublime-workspace
+*.sublime-project
+
+# Python & Django
+__pycache__/
+.Python
+env/
+venv/
+.venv/
+backend/venv/
+backend/.venv/
+backend/db.sqlite3
+backend/media/
+backend/staticfiles/
+backend/logs/
+
+# Env & Configuration
+.env
+.env.*
+backend/.env
+backend/.env.*
+
+# Docker
+docker-compose.override.yml
+
+# Flutter/Dart/Pub related
+**/doc/api/
+**/ios/Flutter/.last_build_id
+.dart_tool/
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+/build/
+/coverage/
+
+# Symbolication / Obfuscation related
+app.*.symbols
+app.*.map.json
+
+# Android Studio will place build artifacts here
+/android/app/debug
+/android/app/profile
+/android/app/release

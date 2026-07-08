@@ -1,0 +1,81 @@
+name: digital_press
+description: Digital Press - Plateforme de presse numérique
+version: 2.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+
+dependencies:
+  syncfusion_flutter_pdfviewer: ^28.1.37
+  flutter:
+    sdk: flutter
+
+  # UI
+  cupertino_icons: ^1.0.8
+
+  # Storage
+  shared_preferences: 2.5.3
+
+  # Utils
+  intl: ^0.19.0
+
+  # Media viewers
+  webview_flutter: 4.13.0
+
+  # PDF viewer (remplacé syncfusion par flutter_pdfview qui est plus stable)
+  flutter_pdfview: ^1.3.2
+
+  # Video player
+  video_player: ^2.9.5
+
+  # Charts for dashboard
+  fl_chart: ^0.64.0
+
+  # Image cache
+  cached_network_image: ^3.4.1
+
+  # Image picker for content creation
+  image_picker: ^1.1.2
+
+  # File picker for document uploads
+  file_picker: ^8.1.0
+  
+  # PDF text extraction
+  pdf: ^3.10.0
+
+  # Téléchargement de fichiers
+  flutter_downloader: ^1.11.7
+
+  # State management
+  flutter_riverpod: ^2.4.9
+
+  # Routing
+  go_router: ^13.0.0
+
+  # HTTP & API Client
+  dio: ^5.4.0
+
+  # Storage & Secure Storage
+  flutter_secure_storage: ^9.0.0
+  hive: ^2.2.3
+  hive_flutter: ^1.1.0
+  path_provider: ^2.1.1
+
+  # Local Notifications & Push
+  flutter_local_notifications: ^17.2.2
+  firebase_core: ^3.10.1
+  firebase_messaging: ^15.2.10
+
+  # Utils & Logging
+  logger: ^2.0.2+1
+  permission_handler: ^11.3.0
+  url_launcher: ^6.2.5
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
