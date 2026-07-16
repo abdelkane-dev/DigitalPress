@@ -308,12 +308,8 @@ STATIC_ROOT = BASE_DIR / 'staticfiles'
 # WhiteNoise : compression + cache busting automatique en production
 STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
-# Sur Render : les fichiers media sont sur le Disk persistant monté sur /opt/render/project/media
-# En local : dossier media/ classique dans le backend
-if IS_RENDER:
-    MEDIA_ROOT = Path('/opt/render/project/media')
-else:
-    MEDIA_ROOT = BASE_DIR / 'media'
+# Les fichiers média sont stockés dans le dossier media/ local (éphémère sur Render gratuit)
+MEDIA_ROOT = BASE_DIR / 'media'
 
 MEDIA_URL = '/media/'
 

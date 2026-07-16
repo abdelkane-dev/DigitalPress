@@ -23,12 +23,6 @@ services:
     # Commande de démarrage en production avec Gunicorn
     startCommand: "gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --timeout 120 --access-logfile - --error-logfile -"
 
-    # Disk persistant pour les fichiers media (PDFs, images, vidéos)
-    disk:
-      name: digitalpress-media
-      mountPath: /opt/render/project/media
-      sizeGB: 1  # 1 Go gratuit
-
     # Variables d'environnement
     envVars:
       # Indique à Django qu'on est sur Render
