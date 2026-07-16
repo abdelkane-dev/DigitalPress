@@ -27,7 +27,7 @@ class ConversationsService {
   Future<List<Map<String, dynamic>>> getPublicationReviews(
       int publicationId) async {
     final res = await _api
-        .get(ApiConstants.publicationReviews(publicationId.toString()));
+        .get(ApiConstants.conversationFeed(publicationId));
     final results = res.data as List? ?? res.data['results'] as List? ?? [];
     return results.cast<Map<String, dynamic>>();
   }
