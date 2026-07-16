@@ -1,4 +1,5 @@
 import logging
+from django.shortcuts import get_object_or_404
 
 from rest_framework import generics, status, permissions
 from rest_framework.response import Response
@@ -13,9 +14,10 @@ from .models import User, PublisherProfile, PosterWarning, PasswordResetCode
 from .serializers import (
     UserSerializer, RegisterSerializer,
     CustomTokenObtainPairSerializer, ChangePasswordSerializer,
-    PublisherProfileSerializer, PosterWarningSerializer,
-    PosterWarningCreateSerializer, PasswordResetRequestSerializer,
-    PasswordResetVerifySerializer, PasswordResetConfirmSerializer,
+    PublisherProfileSerializer, PublicPublisherProfileSerializer,
+    PosterWarningSerializer, PosterWarningCreateSerializer,
+    PasswordResetRequestSerializer, PasswordResetVerifySerializer,
+    PasswordResetConfirmSerializer,
 )
 from .permissions import IsAdmin, IsPublisher
 
@@ -97,6 +99,17 @@ class PublisherProfileView(generics.RetrieveUpdateAPIView):
             defaults={'company_name': self.request.user.name or self.request.user.username}
         )
         return profile
+
+
+class PublicPublisherDetailView(generics.RetrieveAPIView):
+    serializer_class = PublicPublisherProfileSerializer
+    permission_classes = [permissions.AllowAny]
+
+    def get_object(self):
+        return get_object_or_404(
+            PublisherProfile.objects.select_related('user').filter(is_active=True),
+            user__id=self.kwargs.get('pk')
+        )
 
 
 class PublishersListView(generics.ListAPIView):

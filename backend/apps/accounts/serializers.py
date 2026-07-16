@@ -4,6 +4,7 @@ from django.contrib.auth.password_validation import validate_password
 from .models import User, PublisherProfile, PosterWarning, PasswordResetCode
 from django.core.files.storage import default_storage
 from django.conf import settings
+from django.db import models
 
 class AvatarField(serializers.Field):
     def to_representation(self, value):
@@ -60,15 +61,50 @@ class PublisherProfileSerializer(serializers.ModelSerializer):
         return super().update(instance, validated_data)
 
 
+class PublicPublisherProfileSerializer(serializers.ModelSerializer):
+    username = serializers.CharField(source='user.username', read_only=True)
+
+    class Meta:
+        model = PublisherProfile
+        fields = ['id', 'username', 'company_name', 'website', 'address', 'bio']
+        read_only_fields = ['id', 'username', 'company_name', 'website', 'address', 'bio']
+
+
 class UserSerializer(serializers.ModelSerializer):
     publisher_profile = PublisherProfileSerializer(required=False)
     avatar = AvatarField(required=False, allow_null=True)
+    stats = serializers.SerializerMethodField()
+    preferences = serializers.SerializerMethodField()
 
     class Meta:
         model = User
         fields = ['id', 'username', 'email', 'name', 'phone', 'avatar',
-                  'role', 'is_verified', 'is_active', 'solde', 'publisher_profile', 'date_joined']
+                  'role', 'is_verified', 'is_active', 'solde', 'publisher_profile',
+                  'date_joined', 'stats', 'preferences']
         read_only_fields = ['date_joined', 'is_verified', 'solde']
+
+    def get_stats(self, obj):
+        favorite_count = obj.favorites.count() if hasattr(obj, 'favorites') else 0
+        purchase_count = obj.transactions_emises.filter(type_transaction='purchase').count()
+        read_count = 0
+        if hasattr(obj, 'conversation_reads'):
+            read_count = obj.conversation_reads.count()
+        return {
+            'total_purchases': purchase_count,
+            'total_reads': read_count,
+            'total_bookmarks': favorite_count,
+            'total_spent': float(obj.transactions_emises.filter(status='success').aggregate(models.Sum('montant_net'))['montant_net__sum'] or 0),
+            'reading_streak': 0,
+        }
+
+    def get_preferences(self, obj):
+        return {
+            'notifications_enabled': True,
+            'email_notifications': True,
+            'push_notifications': True,
+            'language': 'fr',
+            'dark_mode': False,
+        }
 
     def to_internal_value(self, data):
         mutable_data = data.copy() if hasattr(data, 'copy') else dict(data)

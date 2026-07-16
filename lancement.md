@@ -8,6 +8,6 @@ C:/Users/Lenovo/AppData/Local/Android/Sdk/platform-tools/adb.exe reverse tcp:800
 
 flutter clean &&
 
-flutter pub get &&
+flutter pub get &&dc
 
 flutter run --dart-define=API_BASE_URL=http://127.0.0.1:8000/api/

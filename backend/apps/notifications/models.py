@@ -12,6 +12,8 @@ class Notification(models.Model):
         ('withdrawal_rejected', 'Retrait rejeté'),
         ('withdrawal_completed', 'Retrait complété'),
         ('new_publication', 'Nouvelle publication'),
+        ('new_comment', 'Nouveau commentaire'),
+        ('new_reply', 'Nouvelle réponse'),
         ('system', 'Système'),
     ]
 

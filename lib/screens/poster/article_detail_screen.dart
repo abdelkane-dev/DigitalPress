@@ -8,8 +8,14 @@ class ArticleDetailScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final contentText = publication.content.isNotEmpty ? publication.content : publication.description;
-    final lines = contentText.split('\n');
+    final contentText = publication.content.trim().isNotEmpty
+        ? publication.content
+        : publication.description;
+
+    final paragraphs = contentText
+        .split(RegExp(r'\n\s*\n'))
+        .where((p) => p.trim().isNotEmpty)
+        .toList();
 
     return Scaffold(
       appBar: AppBar(
@@ -33,7 +39,6 @@ class ArticleDetailScreen extends StatelessWidget {
               ),
             ),
           const SizedBox(height: 16),
-
           Text(
             publication.title,
             style: const TextStyle(
@@ -42,9 +47,7 @@ class ArticleDetailScreen extends StatelessWidget {
               color: Color(0xFF0A2647),
             ),
           ),
-
           const SizedBox(height: 10),
-
           Text(
             publication.description,
             style: TextStyle(
@@ -53,18 +56,34 @@ class ArticleDetailScreen extends StatelessWidget {
               fontWeight: FontWeight.w500,
             ),
           ),
-
           const SizedBox(height: 24),
+          if (paragraphs.isNotEmpty)
+            ...paragraphs.map((paragraph) {
+              final cleaned = paragraph
+                  .replaceAll(RegExp(r'\*\*'), '')
+                  .replaceAll(RegExp(r'__'), '')
+                  .replaceAll(RegExp(r'\[(.*?)\]\((.*?)\)'), r'$1')
+                  .replaceAll(RegExp(r'!\[(.*?)\]\((.*?)\)'), '')
+                  .replaceAll(RegExp(r'---'), '')
+                  .trim();
 
-          ...lines.map(
-            (line) => Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: Text(
-                line,
-                style: const TextStyle(fontSize: 16, height: 1.5),
-              ),
+              if (cleaned.isEmpty) {
+                return const SizedBox.shrink();
+              }
+
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: Text(
+                  cleaned,
+                  style: const TextStyle(fontSize: 16, height: 1.5),
+                ),
+              );
+            }),
+          if (paragraphs.isEmpty)
+            const Text(
+              'Aucun contenu texte n’a encore été ajouté à cet article.',
+              style: TextStyle(fontSize: 16, color: Colors.grey),
             ),
-          ),
         ],
       ),
     );

@@ -93,17 +93,22 @@ class ReaderViewModel extends StateNotifier<ReaderState> {
     try {
       final id = int.tryParse(journalId);
       if (id == null) {
-        state = state.copyWith(isLoading: false, errorMessage: 'Identifiant de publication invalide.');
+        state = state.copyWith(
+            isLoading: false, errorMessage: 'Identifiant de publication invalide.');
         return;
       }
       final url = await _publicationService.getProtectedFileUrl(id);
-      if (url.isEmpty) {
-        state = state.copyWith(isLoading: false, accessDenied: true);
-        return;
-      }
-      state = state.copyWith(fileUrl: url);
+      state = state.copyWith(
+          isLoading: false, fileUrl: url, accessDenied: false);
     } on Failure catch (e) {
-      state = state.copyWith(isLoading: false, errorMessage: e.message);
+      if (e.message.contains('Abonnement') ||
+          e.message.contains('achat') ||
+          e.message.contains('requis') ||
+          e.message.contains('403')) {
+        state = state.copyWith(isLoading: false, accessDenied: true);
+      } else {
+        state = state.copyWith(isLoading: false, errorMessage: e.message);
+      }
     } catch (e) {
       state = state.copyWith(isLoading: false, errorMessage: e.toString());
     }

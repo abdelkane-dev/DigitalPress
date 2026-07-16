@@ -7,6 +7,8 @@ import 'package:go_router/go_router.dart';
 import 'edit_profile_screen.dart';
 import 'purchase_history_screen.dart';
 import 'change_password_screen.dart';
+import '../notifications/notifications_screen.dart';
+import '../../widgets/notification_bell_button.dart';
 
 class ProfileScreen extends ConsumerWidget {
   const ProfileScreen({super.key});
@@ -23,7 +25,7 @@ class ProfileScreen extends ConsumerWidget {
           if (user == null) return const Center(child: Text('Non connecté'));
           return CustomScrollView(
             slivers: [
-              _buildAppBar(),
+              _buildAppBar(context),
               SliverToBoxAdapter(
                 child: Column(
                   children: [
@@ -42,14 +44,28 @@ class ProfileScreen extends ConsumerWidget {
     );
   }
 
-  Widget _buildAppBar() {
+  Widget _buildAppBar(BuildContext context) {
     return SliverAppBar(
-      expandedHeight: 100.0,
+      expandedHeight: 140.0,
       floating: false,
       pinned: true,
       elevation: 0,
       backgroundColor: const Color(0xFF0A2647),
       automaticallyImplyLeading: false,
+      actions: [
+        NotificationBellButton(
+          color: Colors.white,
+          onPressed: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => const NotificationsScreen(),
+              ),
+            );
+          },
+        ),
+        const SizedBox(width: 8),
+      ],
       flexibleSpace: FlexibleSpaceBar(
         titlePadding: const EdgeInsets.only(left: 20, bottom: 16),
         title: const Text(
@@ -67,6 +83,62 @@ class ProfileScreen extends ConsumerWidget {
               end: Alignment.bottomRight,
               colors: [Color(0xFF0A2647), Color(0xFF144272)],
             ),
+          ),
+          child: Stack(
+            children: [
+              Positioned(
+                right: -30,
+                top: -30,
+                child: Container(
+                  width: 120,
+                  height: 120,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: Colors.white.withAlpha(10),
+                  ),
+                ),
+              ),
+              Positioned(
+                left: -20,
+                bottom: -20,
+                child: Container(
+                  width: 80,
+                  height: 80,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: const Color(0xFF2C74B3).withAlpha(30),
+                  ),
+                ),
+              ),
+              // Logo + "DigitalPress" — même position que la page Accueil
+              Positioned(
+                left: 20,
+                top: 52,
+                child: Row(
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: Image.asset(
+                        'assets/app_icon.png',
+                        width: 32,
+                        height: 32,
+                        fit: BoxFit.cover,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    const Text(
+                      'DigitalPress',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w900,
+                        fontSize: 20,
+                        letterSpacing: -0.5,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
         ),
       ),
@@ -154,8 +226,6 @@ class ProfileScreen extends ConsumerWidget {
             ),
           ],
           const SizedBox(height: 16),
-          _buildRoleBadge(user),
-          const SizedBox(height: 16),
           if (user.isVerified)
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -183,43 +253,6 @@ class ProfileScreen extends ConsumerWidget {
                 ],
               ),
             ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildRoleBadge(User user) {
-    final (label, color, icon) = switch (user.role) {
-      'admin' => (
-          'Administrateur',
-          const Color(0xFFEF4444),
-          Icons.admin_panel_settings_rounded
-        ),
-      'publisher' => (
-          'Éditeur / Presse',
-          const Color(0xFF8B5CF6),
-          Icons.newspaper_rounded
-        ),
-      _ => ('Lecteur', const Color(0xFF2C74B3), Icons.auto_stories_rounded),
-    };
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      decoration: BoxDecoration(
-        color: color.withAlpha(18),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: color.withAlpha(60)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, color: color, size: 18),
-          const SizedBox(width: 8),
-          Text(
-            label,
-            style: TextStyle(
-                color: color, fontWeight: FontWeight.w700, fontSize: 14),
-          ),
         ],
       ),
     );
@@ -438,13 +471,17 @@ class ProfileScreen extends ConsumerWidget {
                 context: context,
                 applicationName: 'DigitalPress',
                 applicationVersion: '1.0.0',
-                applicationIcon: const Icon(
-                  Icons.menu_book_rounded,
-                  size: 50,
-                  color: Color(0xFF0A2647),
+                applicationIcon: ClipRRect(
+                  borderRadius: BorderRadius.circular(10),
+                  child: Image.asset(
+                    'assets/app_icon.png',
+                    width: 48,
+                    height: 48,
+                    fit: BoxFit.cover,
+                  ),
                 ),
-                children: [
-                  const Text('La meilleure application de presse numérique.'),
+                children: const [
+                  Text('La meilleure application de presse numérique.'),
                 ],
               );
             },

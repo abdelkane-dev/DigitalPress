@@ -1,5 +1,5 @@
 class AppConfig {
-  static const String appName = 'Digital Press';
+  static const String appName = 'DigitalPress';
   static const String appVersion = '1.0.0';
 
   // ─── Backend API URLs ────────────────────────────────────────────────────────

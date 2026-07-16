@@ -7,20 +7,31 @@ class AdminComptabiliteScreen extends ConsumerStatefulWidget {
   const AdminComptabiliteScreen({super.key});
 
   @override
-  ConsumerState<AdminComptabiliteScreen> createState() => _AdminComptabiliteScreenState();
+  ConsumerState<AdminComptabiliteScreen> createState() =>
+      _AdminComptabiliteScreenState();
 }
 
-class _AdminComptabiliteScreenState extends ConsumerState<AdminComptabiliteScreen> {
+class _AdminComptabiliteScreenState
+    extends ConsumerState<AdminComptabiliteScreen> {
   bool _isLoading = false;
   Map<String, dynamic> _stats = {};
   List<dynamic> _journal = [];
   List<dynamic> _reconciliations = [];
   List<dynamic> _soldes = [];
+  final _withdrawAmountController = TextEditingController();
+  final _withdrawAccountController = TextEditingController();
 
   @override
   void initState() {
     super.initState();
     _loadAdminCompta();
+  }
+
+  @override
+  void dispose() {
+    _withdrawAmountController.dispose();
+    _withdrawAccountController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadAdminCompta() async {
@@ -37,13 +48,16 @@ class _AdminComptabiliteScreenState extends ConsumerState<AdminComptabiliteScree
       // 2. Journal général des écritures
       final journalRes = await api.get(ApiConstants.journalAdmin);
       if (journalRes.statusCode == 200) {
-        _journal = journalRes.data['results'] as List? ?? journalRes.data as List? ?? [];
+        _journal = journalRes.data['results'] as List? ??
+            journalRes.data as List? ??
+            [];
       }
 
       // 3. Réconciliations mensuelles
       final reconRes = await api.get(ApiConstants.reconciliation);
       if (reconRes.statusCode == 200) {
-        _reconciliations = reconRes.data['results'] as List? ?? reconRes.data as List? ?? [];
+        _reconciliations =
+            reconRes.data['results'] as List? ?? reconRes.data as List? ?? [];
       }
 
       // 4. Soldes de chaque éditeur
@@ -54,7 +68,8 @@ class _AdminComptabiliteScreenState extends ConsumerState<AdminComptabiliteScree
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erreur lors de la récupération des données: $e')),
+        SnackBar(
+            content: Text('Erreur lors de la récupération des données: $e')),
       );
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -78,7 +93,8 @@ class _AdminComptabiliteScreenState extends ConsumerState<AdminComptabiliteScree
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Réconciliation générée et enregistrée avec succès ! ✓'),
+            content:
+                Text('Réconciliation générée et enregistrée avec succès ! ✓'),
             backgroundColor: Colors.green,
           ),
         );
@@ -94,11 +110,112 @@ class _AdminComptabiliteScreenState extends ConsumerState<AdminComptabiliteScree
     }
   }
 
+  Future<void> _requestWithdrawal() async {
+    final amountText = _withdrawAmountController.text.trim();
+    final accountText = _withdrawAccountController.text.trim();
+    if (amountText.isEmpty || accountText.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('Veuillez saisir un montant et un compte.')),
+      );
+      return;
+    }
+
+    final amount = double.tryParse(amountText);
+    if (amount == null || amount <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Veuillez entrer un montant valide.')),
+      );
+      return;
+    }
+
+    try {
+      final api = ref.read(apiClientProvider);
+      final res = await api.post(
+        ApiConstants.demandeRetrait,
+        data: {
+          'montant': amount,
+          'mode_paiement': 'mobile_money',
+          'numero_compte': accountText,
+        },
+      );
+
+      if (res.statusCode == 201) {
+        if (!mounted) return;
+        Navigator.of(context).pop();
+        _withdrawAmountController.clear();
+        _withdrawAccountController.clear();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Demande de retrait envoyée avec succès.'),
+            backgroundColor: Colors.green,
+          ),
+        );
+        _loadAdminCompta();
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Erreur lors du retrait : $e')),
+      );
+    }
+  }
+
+  void _showWithdrawalDialog() {
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Demander un retrait'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('Saisissez le montant à retirer depuis votre compte.'),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _withdrawAmountController,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: 'Montant (FCFA)',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _withdrawAccountController,
+                keyboardType: TextInputType.phone,
+                decoration: const InputDecoration(
+                  labelText: 'Compte / numéro Mobile Money',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Annuler'),
+            ),
+            ElevatedButton(
+              onPressed: _requestWithdrawal,
+              child: const Text('Valider'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final caBrut = double.tryParse(_stats['chiffre_affaires_brut']?.toString() ?? '0') ?? 0;
-    final comNet = double.tryParse(_stats['commissions_collectees']?.toString() ?? '0') ?? 0;
-    final payouts = double.tryParse(_stats['retraits_valides']?.toString() ?? '0') ?? 0;
+    final caBrut =
+        double.tryParse(_stats['chiffre_affaires_brut']?.toString() ?? '0') ??
+            0;
+    final comNet =
+        double.tryParse(_stats['commissions_collectees']?.toString() ?? '0') ??
+            0;
+    final payouts =
+        double.tryParse(_stats['retraits_valides']?.toString() ?? '0') ?? 0;
     final nbTx = _stats['nb_transactions_success'] ?? 0;
 
     return DefaultTabController(
@@ -121,6 +238,12 @@ class _AdminComptabiliteScreenState extends ConsumerState<AdminComptabiliteScree
               onPressed: _loadAdminCompta,
             )
           ],
+        ),
+        floatingActionButton: FloatingActionButton.extended(
+          onPressed: _showWithdrawalDialog,
+          icon: const Icon(Icons.payments_outlined),
+          label: const Text(''),
+          backgroundColor: const Color(0xFF0A2647),
         ),
         body: _isLoading
             ? const Center(child: CircularProgressIndicator())
@@ -171,17 +294,26 @@ class _AdminComptabiliteScreenState extends ConsumerState<AdminComptabiliteScree
                           separatorBuilder: (_, __) => const Divider(),
                           itemBuilder: (context, index) {
                             final ecriture = _journal[index];
-                            final amount = double.tryParse(ecriture['montant']?.toString() ?? '0') ?? 0;
+                            final amount = double.tryParse(
+                                    ecriture['montant']?.toString() ?? '0') ??
+                                0;
                             final dateStr = ecriture['date_ecriture'] != null
-                                ? DateTime.tryParse(ecriture['date_ecriture'].toString())?.toLocal().toString().split('.')[0] ?? ''
+                                ? DateTime.tryParse(ecriture['date_ecriture']
+                                            .toString())
+                                        ?.toLocal()
+                                        .toString()
+                                        .split('.')[0] ??
+                                    ''
                                 : '';
                             return ListTile(
                               contentPadding: EdgeInsets.zero,
                               title: Text(ecriture['libelle'] ?? 'Écriture'),
-                              subtitle: Text('$dateStr\nCompte D: ${ecriture['compte_debit']} | C: ${ecriture['compte_credit']}'),
+                              subtitle: Text(
+                                  '$dateStr\nCompte D: ${ecriture['compte_debit']} | C: ${ecriture['compte_credit']}'),
                               trailing: Text(
                                 '${amount.toStringAsFixed(0)} FCFA',
-                                style: const TextStyle(fontWeight: FontWeight.bold),
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.bold),
                               ),
                             );
                           },
@@ -198,7 +330,8 @@ class _AdminComptabiliteScreenState extends ConsumerState<AdminComptabiliteScree
                           child: ElevatedButton.icon(
                             onPressed: _triggerReconciliation,
                             icon: const Icon(Icons.compare_arrows_rounded),
-                            label: const Text('Lancer la réconciliation du mois'),
+                            label:
+                                const Text('Lancer la réconciliation du mois'),
                             style: ElevatedButton.styleFrom(
                               backgroundColor: const Color(0xFF0A2647),
                               foregroundColor: Colors.white,
@@ -209,24 +342,32 @@ class _AdminComptabiliteScreenState extends ConsumerState<AdminComptabiliteScree
                         const SizedBox(height: 20),
                         Expanded(
                           child: _reconciliations.isEmpty
-                              ? const Center(child: Text('Aucune réconciliation enregistrée.'))
+                              ? const Center(
+                                  child: Text(
+                                      'Aucune réconciliation enregistrée.'))
                               : ListView.separated(
                                   itemCount: _reconciliations.length,
                                   separatorBuilder: (_, __) => const Divider(),
                                   itemBuilder: (context, index) {
                                     final rec = _reconciliations[index];
                                     return ListTile(
-                                      title: Text('Période: ${rec['periode_mois']}/${rec['periode_annee']}'),
+                                      title: Text(
+                                          'Période: ${rec['periode_mois']}/${rec['periode_annee']}'),
                                       subtitle: Text(
                                           'Ecart: ${rec['ecart']} FCFA | Statut: ${rec['status'].toString().toUpperCase()}'),
                                       trailing: Chip(
                                         label: Text(
-                                          rec['status'] == 'reconciled' ? 'OK' : 'ANOMALIE',
-                                          style: const TextStyle(color: Colors.white, fontSize: 11),
+                                          rec['status'] == 'reconciled'
+                                              ? 'OK'
+                                              : 'ANOMALIE',
+                                          style: const TextStyle(
+                                              color: Colors.white,
+                                              fontSize: 11),
                                         ),
-                                        backgroundColor: rec['status'] == 'reconciled'
-                                            ? Colors.green
-                                            : Colors.red,
+                                        backgroundColor:
+                                            rec['status'] == 'reconciled'
+                                                ? Colors.green
+                                                : Colors.red,
                                       ),
                                     );
                                   },
@@ -238,31 +379,40 @@ class _AdminComptabiliteScreenState extends ConsumerState<AdminComptabiliteScree
 
                   // Tab 4: Soldes éditeurs
                   _soldes.isEmpty
-                      ? const Center(child: Text('Aucun solde éditeur enregistré.'))
+                      ? const Center(
+                          child: Text('Aucun solde éditeur enregistré.'))
                       : ListView.separated(
                           padding: const EdgeInsets.all(16),
                           itemCount: _soldes.length,
                           separatorBuilder: (_, __) => const Divider(),
                           itemBuilder: (context, index) {
                             final p = _soldes[index];
-                            final solde = double.tryParse(p['solde']?.toString() ?? '0') ?? 0;
-                            final earned = double.tryParse(p['total_earned']?.toString() ?? '0') ?? 0;
+                            final solde = double.tryParse(
+                                    p['solde']?.toString() ?? '0') ??
+                                0;
+                            final earned = double.tryParse(
+                                    p['total_earned']?.toString() ?? '0') ??
+                                0;
                             return ListTile(
                               contentPadding: EdgeInsets.zero,
                               title: Text(p['company_name'] ?? p['username']),
-                              subtitle: Text('Taux de commission: ${p['commission_rate']}%'),
+                              subtitle: Text(
+                                  'Taux de commission: ${p['commission_rate']}%'),
                               trailing: Column(
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 crossAxisAlignment: CrossAxisAlignment.end,
                                 children: [
                                   Text(
                                     'Solde: ${solde.toStringAsFixed(0)} FCFA',
-                                    style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.blue),
+                                    style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.blue),
                                   ),
                                   const SizedBox(height: 4),
                                   Text(
                                     'Gains: ${earned.toStringAsFixed(0)} FCFA',
-                                    style: const TextStyle(fontSize: 12, color: Colors.grey),
+                                    style: const TextStyle(
+                                        fontSize: 12, color: Colors.grey),
                                   ),
                                 ],
                               ),
@@ -275,7 +425,8 @@ class _AdminComptabiliteScreenState extends ConsumerState<AdminComptabiliteScree
     );
   }
 
-  Widget _buildSummaryCard(String title, String value, Color color, String subtitle) {
+  Widget _buildSummaryCard(
+      String title, String value, Color color, String subtitle) {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(20),
@@ -294,14 +445,20 @@ class _AdminComptabiliteScreenState extends ConsumerState<AdminComptabiliteScree
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(title, style: TextStyle(color: Colors.grey.shade600, fontSize: 13, fontWeight: FontWeight.bold)),
+          Text(title,
+              style: TextStyle(
+                  color: Colors.grey.shade600,
+                  fontSize: 13,
+                  fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
           Text(
             value,
-            style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: color),
+            style: TextStyle(
+                fontSize: 24, fontWeight: FontWeight.bold, color: color),
           ),
           const SizedBox(height: 6),
-          Text(subtitle, style: TextStyle(color: Colors.grey.shade500, fontSize: 12)),
+          Text(subtitle,
+              style: TextStyle(color: Colors.grey.shade500, fontSize: 12)),
         ],
       ),
     );

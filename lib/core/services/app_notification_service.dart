@@ -1,7 +1,12 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../api/api_client.dart';
+import '../storage/secure_storage_service.dart';
 import 'package:logger/logger.dart';
+import '../exceptions/failures.dart';
+import './auth_service.dart';
+import '../../model/user.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Modèle
@@ -104,18 +109,67 @@ class AppNotification {
 // StateNotifier
 // ─────────────────────────────────────────────────────────────────────────────
 
-class NotificationsNotifier extends StateNotifier<AsyncValue<List<AppNotification>>> {
+class NotificationsNotifier
+    extends StateNotifier<AsyncValue<List<AppNotification>>> {
   final ApiClient _api;
+  final Ref _ref;
   final _logger = Logger();
+  Timer? _pollingTimer;
+  int _consecutiveNetworkErrors = 0;
+  static const int _maxNetworkErrorRetries = 3;
 
-  NotificationsNotifier(this._api) : super(const AsyncValue.loading()) {
+  NotificationsNotifier(this._api, this._ref)
+      : super(const AsyncValue.loading()) {
+    // Écoute les changements d'état d'authentification pour démarrer/arrêter
+    // le polling des notifications lorsque l'utilisateur se connecte/déconnecte.
+    // `fireImmediately: true` permet d'utiliser l'état d'auth initial sans
+    // démarrer le polling avant que l'auth ne soit résolu.
+    _ref.listen<AsyncValue<User?>>(authStateProvider, (prev, next) {
+      final user = next.asData?.value;
+      if (user != null) {
+        _initialize();
+      } else {
+        _pollingTimer?.cancel();
+        state = const AsyncValue.data([]);
+      }
+    }, fireImmediately: true);
+  }
+
+  Future<void> _initialize() async {
+    final token = await _ref.read(secureStorageServiceProvider).getToken();
+    _logger.i(
+        'NotificationsNotifier._initialize token present=${token != null && token.isNotEmpty}');
+    if (token == null || token.isEmpty) {
+      _logger.i('No token found — notifications polling will not start');
+      state = const AsyncValue.data([]);
+      return;
+    }
+    _logger.i('Token found — performing initial load and starting polling');
     load();
+    _startPolling();
+  }
+
+  void _startPolling() {
+    _pollingTimer?.cancel();
+    _pollingTimer = Timer.periodic(const Duration(seconds: 15), (_) {
+      load();
+    });
   }
 
   Future<void> load() async {
+    final token = await _ref.read(secureStorageServiceProvider).getToken();
+    if (token == null || token.isEmpty) {
+      _logger.w('load() cancelled: no token available');
+      _pollingTimer?.cancel();
+      state = const AsyncValue.data([]);
+      return;
+    }
+
+    _logger.i('Calling notifications/ with token present');
     state = const AsyncValue.loading();
     try {
       final response = await _api.get('notifications/');
+      _consecutiveNetworkErrors = 0;
       final List<dynamic> raw = response.data is Map
           ? (response.data['results'] as List? ?? [])
           : (response.data as List? ?? []);
@@ -125,6 +179,22 @@ class NotificationsNotifier extends StateNotifier<AsyncValue<List<AppNotificatio
       state = AsyncValue.data(list);
     } catch (e, st) {
       _logger.e('Erreur chargement notifications : $e');
+      if (e is AuthFailure) {
+        _logger.w('AuthFailure received — stopping notifications polling');
+        // Session expirée ou token invalide : arrêter le polling et vider la liste.
+        _pollingTimer?.cancel();
+        state = const AsyncValue.data([]);
+        return;
+      }
+      _consecutiveNetworkErrors += 1;
+      if (_consecutiveNetworkErrors >= _maxNetworkErrorRetries) {
+        _logger.w(
+          'Network error threshold reached ($_consecutiveNetworkErrors) — stopping notifications polling',
+        );
+        _pollingTimer?.cancel();
+        state = AsyncValue.error(e, st);
+        return;
+      }
       state = AsyncValue.error(e, st);
     }
   }
@@ -146,7 +216,8 @@ class NotificationsNotifier extends StateNotifier<AsyncValue<List<AppNotificatio
     try {
       await _api.post('notifications/mark-read/');
       state.whenData((list) {
-        state = AsyncValue.data(list.map((n) => n.copyWith(isRead: true)).toList());
+        state =
+            AsyncValue.data(list.map((n) => n.copyWith(isRead: true)).toList());
       });
     } catch (e) {
       _logger.e('Erreur marquage toutes notifications : $e');
@@ -158,16 +229,22 @@ class NotificationsNotifier extends StateNotifier<AsyncValue<List<AppNotificatio
       state = AsyncValue.data(list.where((n) => n.id != id).toList());
     });
   }
+
+  @override
+  void dispose() {
+    _pollingTimer?.cancel();
+    super.dispose();
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Provider
 // ─────────────────────────────────────────────────────────────────────────────
 
-final appNotificationsProvider =
-    StateNotifierProvider<NotificationsNotifier, AsyncValue<List<AppNotification>>>((ref) {
+final appNotificationsProvider = StateNotifierProvider<NotificationsNotifier,
+    AsyncValue<List<AppNotification>>>((ref) {
   final api = ref.watch(apiClientProvider);
-  return NotificationsNotifier(api);
+  return NotificationsNotifier(api, ref);
 });
 
 final unreadCountProvider = Provider<int>((ref) {

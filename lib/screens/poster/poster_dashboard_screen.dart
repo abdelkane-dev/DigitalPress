@@ -50,11 +50,32 @@ class PosterDashboardScreen extends ConsumerWidget {
         icon: Icons.storefront_outlined,
         route: '/poster/profile',
       ),
+      _PosterCardData(
+        title: 'Fonctionnalités à venir',
+        subtitle: 'Suivre et proposer les prochaines fonctionnalités',
+        icon: Icons.construction_outlined,
+        route: '/poster/feature-roadmap',
+      ),
     ];
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Espace Poster'),
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(6),
+              child: Image.asset(
+                'assets/app_icon.png',
+                width: 28,
+                height: 28,
+                fit: BoxFit.cover,
+              ),
+            ),
+            const SizedBox(width: 8),
+            const Text('Espace Éditeur'),
+          ],
+        ),
         centerTitle: true,
       ),
       backgroundColor: const Color(0xFFF8FAFC),
@@ -69,23 +90,39 @@ class PosterDashboardScreen extends ConsumerWidget {
                 color: Colors.orange.shade700,
                 borderRadius: BorderRadius.circular(16),
               ),
-              child: const Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              child: Row(
                 children: [
-                  Text(
-                    'Bienvenue dans votre espace Poster',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 22,
-                      fontWeight: FontWeight.bold,
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: const [
+                        Text(
+                          'Bienvenue dans votre espace Éditeur',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 22,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        SizedBox(height: 6),
+                        Text(
+                          'Gérez vos publications et suivez vos performances.',
+                          style: TextStyle(
+                            color: Colors.white70,
+                            fontSize: 14,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                  SizedBox(height: 6),
-                  Text(
-                    'Gérez vos publications et suivez vos performances.',
-                    style: TextStyle(
-                      color: Colors.white70,
-                      fontSize: 14,
+                  const SizedBox(width: 12),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: Image.asset(
+                      'assets/app_icon.png',
+                      width: 60,
+                      height: 60,
+                      fit: BoxFit.cover,
                     ),
                   ),
                 ],

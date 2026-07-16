@@ -2,6 +2,7 @@ class User {
   final String id;
   final String email;
   final String username;
+
   /// Rôle backend : admin | publisher | reader
   final String role;
   final String? displayName;
@@ -48,6 +49,8 @@ class User {
   factory User.fromApiJson(Map<String, dynamic> json) {
     final dateJoined = json['date_joined'] as String?;
     final pubProfile = json['publisher_profile'] as Map<String, dynamic>?;
+    final statsJson = json['stats'] as Map<String, dynamic>? ?? {};
+    final prefsJson = json['preferences'] as Map<String, dynamic>? ?? {};
     return User(
       id: json['id'].toString(),
       email: json['email'] as String? ?? '',
@@ -60,8 +63,8 @@ class User {
       createdAt: dateJoined != null
           ? DateTime.tryParse(dateJoined) ?? DateTime.now()
           : DateTime.now(),
-      stats: UserStats(),
-      preferences: UserPreferences(),
+      stats: UserStats.fromJson(statsJson),
+      preferences: UserPreferences.fromJson(prefsJson),
       companyName: pubProfile?['company_name'] as String?,
       siret: pubProfile?['siret'] as String?,
       address: pubProfile?['address'] as String?,

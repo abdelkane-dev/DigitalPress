@@ -10,6 +10,7 @@ import 'package:digital_press/screens/auth/verification_screen.dart';
 import 'package:digital_press/screens/auth/reset_new_password_screen.dart';
 import 'package:digital_press/screens/home/home_screen.dart';
 import 'package:digital_press/screens/reader/reader_screen.dart';
+import 'package:digital_press/screens/article/article_comments_screen.dart';
 
 import 'package:digital_press/screens/admin/admin_statistics_screen.dart';
 import 'package:digital_press/screens/admin/admin_dashboard_screen.dart';
@@ -17,8 +18,8 @@ import 'package:digital_press/screens/admin/manage_posters_screen.dart';
 import 'package:digital_press/screens/admin/create_poster_screen.dart';
 import 'package:digital_press/screens/admin/admin_comptabilite_screen.dart';
 import 'package:digital_press/screens/admin/manage_users_screen.dart';
-import 'package:digital_press/screens/admin/manage_categories_screen.dart';
 import 'package:digital_press/screens/admin/manage_reviews_screen.dart';
+import 'package:digital_press/screens/roadmap/feature_roadmap_screen.dart';
 
 import 'package:digital_press/screens/poster/poster_dashboard_screen.dart';
 import 'package:digital_press/screens/poster/create_articles_screen.dart';
@@ -38,8 +39,8 @@ class GoRouterRefreshStream extends ChangeNotifier {
   GoRouterRefreshStream(Stream<dynamic> stream) {
     notifyListeners();
     _subscription = stream.asBroadcastStream().listen(
-      (dynamic _) => notifyListeners(),
-    );
+          (dynamic _) => notifyListeners(),
+        );
   }
 
   late final StreamSubscription<dynamic> _subscription;
@@ -102,6 +103,18 @@ final routerProvider = Provider<GoRouter>((ref) {
         },
       ),
       GoRoute(
+        path: '/article/:id',
+        builder: (context, state) {
+          final id = int.tryParse(state.pathParameters['id']!) ?? 0;
+          final scrollToComments =
+              state.uri.queryParameters['scrollToComments'] == 'true';
+          return ArticleCommentsScreen(
+            articleId: id,
+            scrollToComments: scrollToComments,
+          );
+        },
+      ),
+      GoRoute(
         path: '/profile/wallet',
         builder: (context, state) => const ClientWalletScreen(),
       ),
@@ -138,6 +151,17 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (context, state) => const PosterProfileScreen(),
       ),
       GoRoute(
+        path: '/publisher/:id',
+        builder: (context, state) {
+          final id = int.tryParse(state.pathParameters['id'] ?? '') ?? 0;
+          return PosterProfileScreen(publisherId: id);
+        },
+      ),
+      GoRoute(
+        path: '/poster/feature-roadmap',
+        builder: (context, state) => const FeatureRoadmapScreen(),
+      ),
+      GoRoute(
         path: '/admin',
         builder: (context, state) => const AdminDashboardScreen(),
       ),
@@ -162,8 +186,8 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (context, state) => const ManageUsersScreen(),
       ),
       GoRoute(
-        path: '/admin/manage-categories',
-        builder: (context, state) => const ManageCategoriesScreen(),
+        path: '/admin/feature-roadmap',
+        builder: (context, state) => const FeatureRoadmapScreen(),
       ),
       GoRoute(
         path: '/admin/manage-reviews',

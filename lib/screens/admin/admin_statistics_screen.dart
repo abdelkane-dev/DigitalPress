@@ -18,103 +18,114 @@ class AdminStatisticsScreen extends ConsumerWidget {
         posters.fold<int>(0, (sum, p) => sum + p.totalArticles);
     final totalPublished =
         posters.fold<int>(0, (sum, p) => sum + p.publishedArticles);
-    final totalDrafts =
-        posters.fold<int>(0, (sum, p) => sum + p.draftArticles);
+    final totalDrafts = posters.fold<int>(0, (sum, p) => sum + p.draftArticles);
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Statistiques globales'),
         centerTitle: true,
       ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          GridView.count(
-            shrinkWrap: true,
-            crossAxisCount: 2,
-            crossAxisSpacing: 12,
-            mainAxisSpacing: 12,
-            childAspectRatio: 1.5,
-            physics: const NeverScrollableScrollPhysics(),
-            children: [
-              _StatCard(
-                title: 'Posters',
-                value: '$totalPosters',
-                icon: Icons.people,
-              ),
-              _StatCard(
-                title: 'Actifs',
-                value: '$activePosters',
-                icon: Icons.verified_user,
-              ),
-              _StatCard(
-                title: 'Bannis',
-                value: '$bannedPosters',
-                icon: Icons.block,
-              ),
-              _StatCard(
-                title: 'Avertissements',
-                value: '$totalWarnings',
-                icon: Icons.warning_amber_rounded,
-              ),
-              _StatCard(
-                title: 'Articles',
-                value: '$totalArticles',
-                icon: Icons.article,
-              ),
-              _StatCard(
-                title: 'Publiés',
-                value: '$totalPublished',
-                icon: Icons.publish,
-              ),
-              _StatCard(
-                title: 'Brouillons',
-                value: '$totalDrafts',
-                icon: Icons.edit_document,
-              ),
-              _StatCard(
-                title: 'Vues totales',
-                value: '$totalViews',
-                icon: Icons.visibility,
-              ),
-            ],
-          ),
-          const SizedBox(height: 20),
-          Container(
-            padding: const EdgeInsets.all(18),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(18),
-              boxShadow: const [
-                BoxShadow(
-                  blurRadius: 10,
-                  color: Colors.black12,
-                  offset: Offset(0, 4),
-                ),
-              ],
-            ),
+      body: LayoutBuilder(
+        builder: (context, constraints) {
+          final isWide = constraints.maxWidth >= 600;
+          final crossAxisCount = isWide ? 2 : 2;
+          final childAspectRatio = isWide ? 1.35 : 1.2;
+
+          return SingleChildScrollView(
+            padding: const EdgeInsets.all(16),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
-                  'Résumé',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
+                GridView.count(
+                  shrinkWrap: true,
+                  crossAxisCount: crossAxisCount,
+                  crossAxisSpacing: 12,
+                  mainAxisSpacing: 12,
+                  childAspectRatio: childAspectRatio,
+                  physics: const NeverScrollableScrollPhysics(),
+                  children: [
+                    _StatCard(
+                      title: 'Éditeurs',
+                      value: '$totalPosters',
+                      icon: Icons.people,
+                    ),
+                    _StatCard(
+                      title: 'Actifs',
+                      value: '$activePosters',
+                      icon: Icons.verified_user,
+                    ),
+                    _StatCard(
+                      title: 'Bannis',
+                      value: '$bannedPosters',
+                      icon: Icons.block,
+                    ),
+                    _StatCard(
+                      title: 'Avertissements',
+                      value: '$totalWarnings',
+                      icon: Icons.warning_amber_rounded,
+                    ),
+                    _StatCard(
+                      title: 'Articles',
+                      value: '$totalArticles',
+                      icon: Icons.article,
+                    ),
+                    _StatCard(
+                      title: 'Publiés',
+                      value: '$totalPublished',
+                      icon: Icons.publish,
+                    ),
+                    _StatCard(
+                      title: 'Brouillons',
+                      value: '$totalDrafts',
+                      icon: Icons.edit_document,
+                    ),
+                    _StatCard(
+                      title: 'Vues totales',
+                      value: '$totalViews',
+                      icon: Icons.visibility,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 20),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(18),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(18),
+                    boxShadow: const [
+                      BoxShadow(
+                        blurRadius: 10,
+                        color: Colors.black12,
+                        offset: Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Résumé',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Text('• Nombre total d\'éditeurs : $totalPosters'),
+                      Text('• Éditeurs actifs : $activePosters'),
+                      Text('• Éditeurs bannis : $bannedPosters'),
+                      Text('• Avertissements cumulés : $totalWarnings'),
+                      Text('• Articles publiés : $totalPublished'),
+                      Text('• Articles en brouillon : $totalDrafts'),
+                      Text('• Total des vues : $totalViews'),
+                    ],
                   ),
                 ),
-                const SizedBox(height: 12),
-                Text('• Nombre total de posters : $totalPosters'),
-                Text('• Posters actifs : $activePosters'),
-                Text('• Posters bannis : $bannedPosters'),
-                Text('• Avertissements cumulés : $totalWarnings'),
-                Text('• Articles publiés : $totalPublished'),
-                Text('• Articles en brouillon : $totalDrafts'),
-                Text('• Total des vues : $totalViews'),
               ],
             ),
-          ),
-        ],
+          );
+        },
       ),
     );
   }
@@ -149,19 +160,21 @@ class _StatCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, color: Colors.blue.shade700),
-          const Spacer(),
+          Icon(icon, color: Colors.blue.shade700, size: 22),
+          const SizedBox(height: 8),
           Text(
             value,
             style: const TextStyle(
-              fontSize: 22,
+              fontSize: 20,
               fontWeight: FontWeight.bold,
             ),
           ),
           const SizedBox(height: 4),
           Text(
             title,
-            style: TextStyle(color: Colors.grey.shade700),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(color: Colors.grey.shade700, fontSize: 13),
           ),
         ],
       ),

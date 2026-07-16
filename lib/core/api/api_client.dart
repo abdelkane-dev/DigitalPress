@@ -16,6 +16,29 @@ final apiClientProvider = Provider<ApiClient>((ref) {
 });
 
 /// Client réseau basé sur [Dio] connecté au backend Django.
+class HealthCheckResult {
+  final bool isOnline;
+  final String? serverMessage;
+
+  const HealthCheckResult({required this.isOnline, this.serverMessage});
+}
+
+String buildHealthStatusMessage({
+  required bool isOnline,
+  String? serverMessage,
+}) {
+  if (!isOnline) {
+    return 'Le serveur est indisponible';
+  }
+
+  final message = (serverMessage ?? '').trim();
+  if (message.isNotEmpty) {
+    return message;
+  }
+
+  return 'Serveur disponible';
+}
+
 class ApiClient {
   late final Dio _dio;
 
@@ -113,7 +136,7 @@ class ApiClient {
   }
 
   /// Vérifie que le backend répond (sans authentification).
-  Future<bool> healthCheck() async {
+  Future<HealthCheckResult> healthCheck() async {
     try {
       final res = await _dio.get(
         'health/',
@@ -122,9 +145,32 @@ class ApiClient {
           receiveTimeout: const Duration(seconds: 5),
         ),
       );
-      return res.statusCode == 200;
+
+      if (res.statusCode == 200) {
+        final data = res.data;
+        String? message;
+
+        if (data is Map<String, dynamic>) {
+          final service = data['service']?.toString();
+          final status = data['status']?.toString();
+          final version = data['version']?.toString();
+
+          final parts = [service, status, version]
+              .whereType<String>()
+              .where((part) => part.trim().isNotEmpty)
+              .toList();
+
+          if (parts.isNotEmpty) {
+            message = parts.join(' • ');
+          }
+        }
+
+        return HealthCheckResult(isOnline: true, serverMessage: message);
+      }
+
+      return const HealthCheckResult(isOnline: false);
     } catch (_) {
-      return false;
+      return const HealthCheckResult(isOnline: false);
     }
   }
 

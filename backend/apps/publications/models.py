@@ -56,6 +56,7 @@ class Publication(models.Model):
     )
     cover_image = models.URLField(blank=True)
     file_url = models.URLField(blank=True)
+    video_url = models.URLField(blank=True)
     prix = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='published')
     pub_type = models.CharField(max_length=20, choices=TYPE_CHOICES, default='article')
@@ -89,6 +90,7 @@ class Review(models.Model):
     rating = models.PositiveSmallIntegerField(default=5)
     comment = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         verbose_name = _('Avis')
@@ -99,29 +101,123 @@ class Review(models.Model):
         return f"{self.reader.username} → {self.publication.title} ({self.rating}/5)"
 
 
-class ConversationRead(models.Model):
-    """Dernière lecture connue d'une conversation (par article et par utilisateur)."""
-    user = models.ForeignKey('accounts.User', on_delete=models.CASCADE, related_name='conversation_reads')
-    publication = models.ForeignKey(Publication, on_delete=models.CASCADE, related_name='conversation_reads')
-    last_read_at = models.DateTimeField()
+class Comment(models.Model):
+    """Réponse "façon Facebook" dans la conversation d'un article.
+
+    Le premier message d'un utilisateur dans une conversation est toujours
+    son avis noté par étoiles (modèle `Review`, un seul par utilisateur).
+    Une fois cet avis posté, l'utilisateur peut échanger librement avec les
+    autres via des `Comment` : plusieurs messages, réponses à n'importe qui
+    (via `parent`), sans limite.
+    """
+    publication = models.ForeignKey(
+        Publication, on_delete=models.CASCADE, related_name='comments'
+    )
+    author = models.ForeignKey(
+        'accounts.User', on_delete=models.CASCADE, related_name='publication_comments'
+    )
+    text = models.TextField()
+    parent = models.ForeignKey(
+        'self', on_delete=models.CASCADE, null=True, blank=True, related_name='replies'
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
+        verbose_name = _('Commentaire')
+        verbose_name_plural = _('Commentaires')
+        ordering = ['created_at']
+
+    def __str__(self):
+        return f"{self.author.username} sur {self.publication.title} : {self.text[:40]}"
+
+
+class ConversationRead(models.Model):
+    """Mémorise la dernière consultation, par un utilisateur, de la section
+    commentaires d'un article. Sert à calculer les badges "nouveaux
+    commentaires non lus" de la page "Mes Conversations".
+    """
+    user = models.ForeignKey(
+        'accounts.User', on_delete=models.CASCADE, related_name='conversation_reads'
+    )
+    publication = models.ForeignKey(
+        Publication, on_delete=models.CASCADE, related_name='conversation_reads'
+    )
+    last_read_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = _('Lecture de conversation')
+        verbose_name_plural = _('Lectures de conversations')
         unique_together = ['user', 'publication']
 
     def __str__(self):
-        return f"Read: {self.user.username} → {self.publication.title} @ {self.last_read_at}"
+        return f"{self.user.username} a lu {self.publication.title} le {self.last_read_at}"
 
 
 class HiddenConversation(models.Model):
-    """Conversations masquées volontairement par l'utilisateur."""
-    user = models.ForeignKey('accounts.User', on_delete=models.CASCADE, related_name='hidden_conversations')
-    publication = models.ForeignKey(Publication, on_delete=models.CASCADE, related_name='hidden_by')
+    """Permet à un utilisateur de "quitter" une conversation : l'article est
+    simplement masqué de sa page "Mes Conversations", sans supprimer ses
+    commentaires ni ceux des autres.
+    """
+    user = models.ForeignKey(
+        'accounts.User', on_delete=models.CASCADE, related_name='hidden_conversations'
+    )
+    publication = models.ForeignKey(
+        Publication, on_delete=models.CASCADE, related_name='hidden_by'
+    )
     hidden_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
+        verbose_name = _('Conversation masquée')
+        verbose_name_plural = _('Conversations masquées')
         unique_together = ['user', 'publication']
 
     def __str__(self):
-        return f"Hidden: {self.user.username} → {self.publication.title}"
+        return f"{self.user.username} a quitté la conversation de {self.publication.title}"
+
+
+class ReaderCategory(models.Model):
+    """Catégorie personnelle créée par un Lecteur pour organiser ses
+    favoris, comme une playlist YouTube. Strictement personnelle : n'a
+    aucun rapport avec le modèle `Category` global (admin/éditeur) et
+    n'est visible que par son créateur.
+    """
+    reader = models.ForeignKey(
+        'accounts.User', on_delete=models.CASCADE, related_name='reader_categories'
+    )
+    name = models.CharField(max_length=100)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = _('Catégorie personnelle (Lecteur)')
+        verbose_name_plural = _('Catégories personnelles (Lecteur)')
+        unique_together = ['reader', 'name']
+        ordering = ['name']
+
+    def __str__(self):
+        return f"{self.name} ({self.reader.username})"
+
+
+class Favorite(models.Model):
+    """Article mis en favori par un Lecteur, éventuellement rangé dans une
+    ou plusieurs de ses catégories personnelles (playlists).
+    """
+    reader = models.ForeignKey(
+        'accounts.User', on_delete=models.CASCADE, related_name='favorites'
+    )
+    publication = models.ForeignKey(
+        Publication, on_delete=models.CASCADE, related_name='favorited_by'
+    )
+    categories = models.ManyToManyField(
+        ReaderCategory, blank=True, related_name='favorites'
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = _('Favori')
+        verbose_name_plural = _('Favoris')
+        unique_together = ['reader', 'publication']
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.reader.username} ♥ {self.publication.title}"

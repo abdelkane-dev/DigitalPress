@@ -70,14 +70,24 @@ class DemandeRetraitCreateSerializer(serializers.ModelSerializer):
 
     def validate_montant(self, value):
         user = self.context['request'].user
-        if not hasattr(user, 'publisher_profile'):
-            raise serializers.ValidationError("Profil éditeur introuvable.")
-        if value > user.publisher_profile.solde:
-            raise serializers.ValidationError(
-                f"Solde insuffisant. Disponible: {user.publisher_profile.solde} FCFA"
-            )
         if value <= 0:
             raise serializers.ValidationError("Le montant doit être positif.")
+
+        if user.role == 'admin':
+            balance = getattr(user, 'solde', 0) or 0
+            if value > balance:
+                raise serializers.ValidationError(
+                    f"Solde insuffisant. Disponible: {balance} FCFA"
+                )
+            return value
+
+        profile = getattr(user, 'publisher_profile', None)
+        if not profile:
+            raise serializers.ValidationError("Profil éditeur introuvable.")
+        if value > profile.solde:
+            raise serializers.ValidationError(
+                f"Solde insuffisant. Disponible: {profile.solde} FCFA"
+            )
         return value
 
     def create(self, validated_data):

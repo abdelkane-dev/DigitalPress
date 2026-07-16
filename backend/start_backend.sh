@@ -50,7 +50,13 @@ echo -e "${GREEN}✓${NC} Environnement virtuel activé"
 
 # ── 3. Install dependencies ──────────────────────────────────────────────────
 echo -e "${YELLOW}⚙  Installation des dépendances...${NC}"
-pip install -r requirements.txt -q
+python -m pip install --upgrade pip setuptools wheel --disable-pip-version-check >/dev/null 2>&1 || true
+
+if ! python -m pip install -r requirements.txt --disable-pip-version-check --default-timeout=600 --retries=5; then
+  echo -e "${YELLOW}⚠  Installation initiale échouée. Nouvelle tentative avec plus de temps...${NC}"
+  python -m pip install -r requirements.txt --disable-pip-version-check --default-timeout=900 --retries=10
+fi
+
 echo -e "${GREEN}✓${NC} Dépendances installées"
 
 # ── 4. Copy .env if missing ──────────────────────────────────────────────────

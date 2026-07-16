@@ -1,11 +1,11 @@
 {
-    "name": "digitalpress",
-    "short_name": "digitalpress",
+    "name": "DigitalPress",
+    "short_name": "DigitalPress",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",
     "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "description": "DigitalPress - La meilleure application de presse numérique.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

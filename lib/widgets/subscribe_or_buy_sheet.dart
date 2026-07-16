@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../core/services/abonnement_service.dart';
+import '../core/services/auth_service.dart';
 import '../../model/models.dart';
 import 'payment_selection_sheet.dart';
 
@@ -31,83 +32,93 @@ class _SubscribeOrBuySheetState extends ConsumerState<SubscribeOrBuySheet> {
         color: Colors.white,
         borderRadius: BorderRadius.vertical(top: Radius.circular(30)),
       ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _buildHeader(),
-          const SizedBox(height: 24),
-          _buildJournalPreview(),
-          const SizedBox(height: 24),
-          const Text(
-            'Choisissez votre formule',
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
-              color: Color(0xFF0A2647),
-            ),
-          ),
-          const SizedBox(height: 12),
-          // Option Achat Unitaire
-          _buildUnitOption(),
-          const SizedBox(height: 12),
-          // Options Abonnements
-          plansAsync.when(
-            data: (plans) {
-              if (plans.isEmpty) {
-                return const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 8.0),
-                  child: Text(
-                    'Aucun plan d\'abonnement disponible pour cette presse.',
-                    style: TextStyle(fontSize: 13, color: Colors.grey),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.85,
+        ),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildHeader(),
+              const SizedBox(height: 24),
+              _buildJournalPreview(),
+              const SizedBox(height: 24),
+              const Text(
+                'Choisissez votre formule',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF0A2647),
+                ),
+              ),
+              const SizedBox(height: 12),
+              // Option Achat Unitaire
+              _buildUnitOption(),
+              const SizedBox(height: 12),
+              // Options Abonnements
+              plansAsync.when(
+                data: (plans) {
+                  if (plans.isEmpty) {
+                    return const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 8.0),
+                      child: Text(
+                        'Aucun plan d\'abonnement disponible pour cette presse.',
+                        style: TextStyle(fontSize: 13, color: Colors.grey),
+                      ),
+                    );
+                  }
+                  return Column(
+                    children: plans.map((plan) => _buildPlanOption(plan)).toList(),
+                  );
+                },
+                loading: () => const Center(
+                  child: Padding(
+                    padding: EdgeInsets.all(16.0),
+                    child: CircularProgressIndicator(color: Color(0xFF2C74B3)),
                   ),
-                );
-              }
-              return Column(
-                children: plans.map((plan) => _buildPlanOption(plan)).toList(),
-              );
-            },
-            loading: () => const Center(
-              child: Padding(
-                padding: EdgeInsets.all(16.0),
-                child: CircularProgressIndicator(color: Color(0xFF2C74B3)),
+                ),
+                error: (err, stack) => Text('Erreur chargement plans: $err'),
               ),
-            ),
-            error: (err, stack) => Text('Erreur chargement plans: $err'),
+              if (_isCreatingAbonnement)
+                const Padding(
+                  padding: EdgeInsets.only(top: 16),
+                  child: Center(
+                    child: CircularProgressIndicator(color: Color(0xFF2C74B3)),
+                  ),
+                ),
+            ],
           ),
-          if (_isCreatingAbonnement)
-            const Padding(
-              padding: EdgeInsets.only(top: 16),
-              child: Center(
-                child: CircularProgressIndicator(color: Color(0xFF2C74B3)),
-              ),
-            ),
-        ],
+        ),
       ),
     );
   }
 
   Widget _buildHeader() {
     return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Accéder au contenu',
-              style: TextStyle(
-                fontSize: 22,
-                fontWeight: FontWeight.w900,
-                color: Color(0xFF0A2647),
+        const Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Accéder au contenu',
+                style: TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.w900,
+                  color: Color(0xFF0A2647),
+                ),
               ),
-            ),
-            SizedBox(height: 4),
-            Text(
-              'Choisissez l\'achat unitaire ou un abonnement',
-              style: TextStyle(fontSize: 13, color: Colors.grey),
-            ),
-          ],
+              SizedBox(height: 4),
+              Text(
+                'Choisissez l\'achat unitaire ou un abonnement',
+                style: TextStyle(fontSize: 13, color: Colors.grey),
+                softWrap: true,
+              ),
+            ],
+          ),
         ),
         IconButton(
           onPressed: () => Navigator.pop(context),
@@ -363,8 +374,12 @@ class _SubscribeOrBuySheetState extends ConsumerState<SubscribeOrBuySheet> {
 }
 
 /// Affiche le menu de sélection achat/abonnement.
-void showSubscribeOrBuySelection(BuildContext context, Publication publication) {
-  if (publication.isSubscribed || publication.prix == 0) {
+void showSubscribeOrBuySelection(BuildContext context, WidgetRef ref, Publication publication) {
+  final user = ref.read(authServiceProvider).currentUser;
+  final isOwner = user != null && user.id == publication.publisherId.toString();
+  final isAdmin = user != null && user.isAdmin;
+
+  if (publication.isSubscribed || publication.prix == 0 || isOwner || isAdmin) {
     // Rediriger directement vers le lecteur
     context.push('/reader/${publication.id}', extra: true);
     return;

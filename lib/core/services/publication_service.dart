@@ -1,7 +1,9 @@
+import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:digital_press/core/api/api_client.dart';
 import 'package:digital_press/config/api_constants.dart';
 import 'package:digital_press/model/publication.dart';
+import 'package:digital_press/model/conversation_message.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Service Publication (Riverpod)
@@ -66,13 +68,13 @@ class PublicationService {
         .toList();
   }
 
-  Future<Publication> createPublication(Map<String, dynamic> data) async {
+  Future<Publication> createPublication(dynamic data) async {
     final res = await _api.post(ApiConstants.createPublication, data: data);
     return Publication.fromJson(res.data as Map<String, dynamic>);
   }
 
   Future<Publication> updatePublication(
-      int id, Map<String, dynamic> data) async {
+      int id, dynamic data) async {
     final res =
         await _api.patch('${ApiConstants.myPublications}$id/', data: data);
     return Publication.fromJson(res.data as Map<String, dynamic>);
@@ -80,6 +82,16 @@ class PublicationService {
 
   Future<void> deletePublication(int id) async {
     await _api.delete('${ApiConstants.myPublications}$id/');
+  }
+
+  /// Upload un fichier média (image, PDF, vidéo) sur le serveur.
+  /// Retourne l'URL absolue du fichier accessible publiquement.
+  Future<String> uploadMedia(String filePath, String fileName) async {
+    final formData = FormData.fromMap({
+      'file': await MultipartFile.fromFile(filePath, filename: fileName),
+    });
+    final res = await _api.post(ApiConstants.mediaUpload, data: formData);
+    return (res.data as Map<String, dynamic>)['url']?.toString() ?? '';
   }
 
   Future<List<Map<String, dynamic>>> getCategories() async {
@@ -96,17 +108,83 @@ class PublicationService {
     return res.data as Map<String, dynamic>;
   }
 
-  Future<bool> toggleCategoryFavorite(int categoryId) async {
-    final res = await _api.post(
-      '${ApiConstants.publications}reader/categories/$categoryId/favorite/',
+  /// Le fil complet de la conversation d'un article : avis notés par
+  /// étoiles + réponses libres façon commentaires Facebook, triés
+  /// chronologiquement.
+  Future<List<ConversationMessage>> getConversationFeed(
+      int publicationId) async {
+    final res = await _api.get(ApiConstants.conversationFeed(publicationId));
+    final results = res.data as List? ?? [];
+    return results
+        .map((j) => ConversationMessage.fromJson(j as Map<String, dynamic>))
+        .toList();
+  }
+
+  /// Poste une réponse libre. [parentId] est l'id complet du message auquel
+  /// on répond (ex: "comment-45") — laisser à null pour un message de
+  /// premier niveau dans la conversation.
+  Future<void> postComment(
+    int publicationId, {
+    required String text,
+    String? parentId,
+  }) async {
+    int? parentCommentId;
+    if (parentId != null && parentId.startsWith('comment-')) {
+      parentCommentId = int.tryParse(parentId.substring('comment-'.length));
+    }
+    await _api.post(
+      ApiConstants.commentAdd(publicationId),
+      data: {
+        'text': text,
+        if (parentCommentId != null) 'parent': parentCommentId,
+      },
     );
-    return res.data['favorited'] as bool? ?? false;
+  }
+
+  /// Supprime un commentaire (l'auteur ou un admin uniquement). [messageId]
+  /// est l'id complet (ex: "comment-45") ; ignoré silencieusement s'il
+  /// s'agit d'un avis (type "review", non supprimable ici).
+  Future<void> deleteComment(String messageId) async {
+    if (!messageId.startsWith('comment-')) return;
+    final id = int.tryParse(messageId.substring('comment-'.length));
+    if (id == null) return;
+    await _api.delete(ApiConstants.commentDelete(id));
+  }
+
+  /// Liste des commentaires (avis) d'un article, du plus récent au plus
+  /// ancien — c'est cette liste qui forme la "conversation" de l'article.
+  Future<List<Map<String, dynamic>>> getReviews(int publicationId) async {
+    final res =
+        await _api.get('${ApiConstants.publications}$publicationId/reviews/');
+    final results = res.data as List? ?? res.data['results'] as List? ?? [];
+    return results.cast<Map<String, dynamic>>();
+  }
+
+  /// Poste un commentaire sur un article. Si l'utilisateur a déjà commenté
+  /// cet article, son commentaire existant est mis à jour (un seul message
+  /// par utilisateur et par article, modifiable à tout moment).
+  Future<Map<String, dynamic>> postReview(
+    int publicationId, {
+    required String comment,
+    int rating = 5,
+  }) async {
+    final res = await _api.post(
+      '${ApiConstants.publications}$publicationId/reviews/add/',
+      data: {'comment': comment, 'rating': rating},
+    );
+    return res.data as Map<String, dynamic>;
   }
 
   Future<List<Map<String, dynamic>>> getPublicPublishers() async {
     final res = await _api.get(ApiConstants.publicPublishers);
     final results = res.data as List? ?? [];
     return results.cast<Map<String, dynamic>>();
+  }
+
+  Future<Map<String, dynamic>> getPublicPublisherProfile(
+      int publisherId) async {
+    final res = await _api.get(ApiConstants.publicPublisherDetail(publisherId));
+    return res.data as Map<String, dynamic>;
   }
 }
 
@@ -203,6 +281,12 @@ final publicPublishersProvider =
   return service.getPublicPublishers();
 });
 
+final publicPublisherProfileProvider =
+    FutureProvider.family<Map<String, dynamic>, int>((ref, publisherId) async {
+  final service = ref.watch(publicationServiceProvider);
+  return service.getPublicPublisherProfile(publisherId);
+});
+
 final myPublicationsProvider = FutureProvider<List<Publication>>((ref) async {
   final service = ref.watch(publicationServiceProvider);
   return service.getMyPublications();
@@ -212,6 +296,18 @@ final publicationDetailProvider =
     FutureProvider.family<Publication, int>((ref, id) async {
   final service = ref.watch(publicationServiceProvider);
   return service.getPublication(id);
+});
+
+final reviewsProvider = FutureProvider.autoDispose
+    .family<List<Map<String, dynamic>>, int>((ref, publicationId) async {
+  final service = ref.watch(publicationServiceProvider);
+  return service.getReviews(publicationId);
+});
+
+final conversationFeedProvider = FutureProvider.autoDispose
+    .family<List<ConversationMessage>, int>((ref, publicationId) async {
+  final service = ref.watch(publicationServiceProvider);
+  return service.getConversationFeed(publicationId);
 });
 
 final categoriesProvider =

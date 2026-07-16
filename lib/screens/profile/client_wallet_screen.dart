@@ -228,24 +228,26 @@ class _ClientWalletScreenState extends ConsumerState<ClientWalletScreen> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Recharger le compte'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text(
-              'Entrez le montant en FCFA à ajouter à votre portefeuille :',
-              style: TextStyle(fontSize: 14),
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: _amountController,
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(
-                labelText: 'Montant (FCFA)',
-                border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.attach_money),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'Entrez le montant en FCFA à ajouter à votre portefeuille :',
+                style: TextStyle(fontSize: 14),
               ),
-            ),
-          ],
+              const SizedBox(height: 16),
+              TextField(
+                controller: _amountController,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: 'Montant (FCFA)',
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.attach_money),
+                ),
+              ),
+            ],
+          ),
         ),
         actions: [
           TextButton(

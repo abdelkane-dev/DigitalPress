@@ -206,19 +206,29 @@ def get_dashboard_stats() -> dict:
     if revenue_last > 0:
         growth = round(((float(revenue_month) - float(revenue_last)) / float(revenue_last)) * 100, 1)
 
+    total_revenue = tx_success.aggregate(t=Sum('montant_brut'))['t'] or 0
+    total_commission = tx_success.aggregate(t=Sum('commission'))['t'] or 0
+    total_withdrawals = Transaction.objects.filter(
+        type_transaction='withdrawal', status='success'
+    ).aggregate(t=Sum('montant_brut'))['t'] or 0
+
     return {
         'total_users': User.objects.count(),
         'total_publishers': User.objects.filter(role='publisher').count(),
         'total_readers': User.objects.filter(role='reader').count(),
         'total_transactions': tx_success.count(),
-        'revenue_total': str(tx_success.aggregate(t=Sum('montant_brut'))['t'] or 0),
+        'revenue_total': str(total_revenue),
         'revenue_month': str(revenue_month),
         'revenue_last_month': str(revenue_last),
         'revenue_growth_pct': growth,
         'commission_month': str(commission_month),
-        'commission_total': str(tx_success.aggregate(t=Sum('commission'))['t'] or 0),
+        'commission_total': str(total_commission),
         'active_subscriptions': Abonnement.objects.filter(status='active').count(),
         'soldes_editeurs': str(
             PublisherProfile.objects.aggregate(t=Sum('solde'))['t'] or 0
         ),
+        'chiffre_affaires_brut': str(total_revenue),
+        'commissions_collectees': str(total_commission),
+        'retraits_valides': str(total_withdrawals),
+        'nb_transactions_success': tx_success.count(),
     }

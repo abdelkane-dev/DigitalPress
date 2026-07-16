@@ -1,3 +1,5 @@
+import '../config/api_config.dart';
+
 /// Modèle unifié pour les publications/contenus de Digital Press.
 /// Fusionne ContenuModel (ancienne architecture) et Journal (nouvelle).
 /// Mappe directement la réponse du backend Django (PublicationSerializer).
@@ -19,6 +21,7 @@ class Publication {
   // Media
   final String coverImage;
   final String fileUrl;
+  final String videoUrl;
 
   // Pricing
   final double prix;
@@ -49,6 +52,7 @@ class Publication {
     this.categoryName,
     this.coverImage = '',
     this.fileUrl = '',
+    this.videoUrl = '',
     this.prix = 0.0,
     this.isFree = false,
     this.status = 'published',
@@ -90,8 +94,9 @@ class Publication {
           : json['category'],
       categoryName: json['category_name'] ??
           (json['category'] is Map ? json['category']['name'] : null),
-      coverImage: json['cover_image'] ?? json['image_url'] ?? '',
-      fileUrl: json['file_url'] ?? json['pdf_url'] ?? '',
+      coverImage: ApiConfig.sanitizeUrl(json['cover_image'] ?? json['image_url'] ?? ''),
+      fileUrl: ApiConfig.sanitizeUrl(json['file_url'] ?? json['pdf_url'] ?? ''),
+      videoUrl: ApiConfig.sanitizeUrl(json['video_url'] ?? ''),
       prix: double.tryParse(json['prix']?.toString() ?? '0') ??
           (json['price'] as num?)?.toDouble() ??
           0.0,
@@ -126,6 +131,7 @@ class Publication {
         'category': categoryId,
         'cover_image': coverImage,
         'file_url': fileUrl,
+        'video_url': videoUrl,
         'prix': prix,
         'is_free': isFree,
         'status': status,
@@ -163,6 +169,7 @@ class Publication {
     String? categoryName,
     String? coverImage,
     String? fileUrl,
+    String? videoUrl,
     double? prix,
     bool? isFree,
     String? status,
@@ -188,6 +195,7 @@ class Publication {
       categoryName: categoryName ?? this.categoryName,
       coverImage: coverImage ?? this.coverImage,
       fileUrl: fileUrl ?? this.fileUrl,
+      videoUrl: videoUrl ?? this.videoUrl,
       prix: prix ?? this.prix,
       isFree: isFree ?? this.isFree,
       status: status ?? this.status,

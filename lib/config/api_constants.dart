@@ -6,6 +6,8 @@ class ApiConstants {
   static const String profile = 'accounts/me/';
   static const String users = 'accounts/users/';
   static const String publicPublishers = 'accounts/publishers/public/';
+  static String publicPublisherDetail(int publisherId) =>
+      'accounts/publishers/public/$publisherId/';
   static const String passwordResetRequest = 'accounts/password-reset/request/';
   static const String passwordResetVerify = 'accounts/password-reset/verify/';
   static const String passwordResetConfirm = 'accounts/password-reset/confirm/';
@@ -23,9 +25,7 @@ class ApiConstants {
   static const String categories = 'publications/categories/';
   static const String adminReviews = 'publications/admin/reviews/';
   static String publicationFile(String id) => 'publications/$id/file/';
-  static String publicationReviews(String id) => 'publications/$id/reviews/';
-  static String publicationAddReview(String id) =>
-      'publications/$id/reviews/add/';
+  static const String mediaUpload = 'publications/upload-media/';
 
   // Abonnements
   static const String abonnements = 'abonnements/';
@@ -41,9 +41,9 @@ class ApiConstants {
   static const String journalAdmin = 'admin/comptabilite/journal/';
   static const String journalEntreprise = 'entreprise/comptabilite/journal/';
   static const String soldeEditeur = 'entreprise/comptabilite/solde/';
-  static const String demandeRetrait = 'entreprise/retrait/demander/';
-  static const String mesDemandesRetrait = 'entreprise/retrait/mes-demandes/';
-  static const String adminDemandesRetrait = 'admin/retraits/';
+  static const String demandeRetrait = 'paiements/retrait/demander/';
+  static const String mesDemandesRetrait = 'paiements/retrait/mes-demandes/';
+  static const String adminDemandesRetrait = 'paiements/admin/retraits/';
   static const String adminSoldesEditeurs = 'admin/editeurs/soldes/';
   static const String reconciliation = 'admin/comptabilite/reconciliation/';
   static const String exportCsv = 'admin/comptabilite/export/';
@@ -55,4 +55,33 @@ class ApiConstants {
   // Notifications
   static const String notifications = 'notifications/';
   static const String registerFcm = 'notifications/fcm/register/';
+
+  // Mes Conversations (remplace l'ancienne page Favoris)
+  static const String conversations = 'publications/conversations/';
+  static String conversationMarkRead(int id) =>
+      'publications/conversations/$id/read/';
+  static String conversationHide(int id) =>
+      'publications/conversations/$id/hide/';
+
+  // Conversation d'un article : avis (étoiles) + commentaires façon Facebook
+  static String conversationFeed(int publicationId) =>
+      'publications/$publicationId/conversation-feed/';
+  static String commentAdd(int publicationId) =>
+      'publications/$publicationId/comments/add/';
+  static String commentDelete(int commentId) =>
+      'publications/comments/$commentId/';
+
+  // Favoris & catégories personnelles du Lecteur (playlists façon YouTube)
+  static const String readerCategories = 'publications/reader-categories/';
+  static String readerCategoryDelete(int id) =>
+      'publications/reader-categories/$id/';
+  static const String favorites = 'publications/favorites/';
+  static const String favoriteAdd = 'publications/favorites/add/';
+  static String favoriteRemove(int publicationId) =>
+      'publications/favorites/$publicationId/';
+
+  // Fonctionnalités à venir (remplace la page Catégories pour Admin/Éditeur)
+  static const String roadmap = 'roadmap/';
+  static String roadmapStatus(int id) => 'roadmap/$id/status/';
+  static String roadmapDelete(int id) => 'roadmap/$id/';
 }

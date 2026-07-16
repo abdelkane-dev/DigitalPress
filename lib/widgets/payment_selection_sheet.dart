@@ -30,69 +30,73 @@ class PaymentSelectionSheet extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
       decoration: const BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.vertical(top: Radius.circular(30)),
       ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _buildHeader(context),
-          const SizedBox(height: 24),
-          // Mode de paiement Portefeuille
-          _buildPaymentOption(
-            context,
-            ref,
-            title: 'Mon Portefeuille',
-            subtitle: 'Payer avec votre solde disponible',
-            icon: Icons.account_balance_wallet_rounded,
-            color: const Color(0xFF0A2647),
-            type: PaymentMethodType.wallet,
+      child: SafeArea(
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildHeader(context),
+              const SizedBox(height: 24),
+              // Mode de paiement Portefeuille
+              _buildPaymentOption(
+                context,
+                ref,
+                title: 'Mon Portefeuille',
+                subtitle: 'Payer avec votre solde disponible',
+                icon: Icons.account_balance_wallet_rounded,
+                color: const Color(0xFF0A2647),
+                type: PaymentMethodType.wallet,
+              ),
+              const SizedBox(height: 12),
+              _buildPaymentOption(
+                context,
+                ref,
+                title: 'Wave',
+                subtitle: 'Rapide et sans frais',
+                icon: Icons.water_drop_rounded,
+                color: const Color(0xFF49B8E7),
+                type: PaymentMethodType.wave,
+              ),
+              const SizedBox(height: 12),
+              _buildPaymentOption(
+                context,
+                ref,
+                title: 'Orange Money',
+                subtitle: 'Simple et sécurisé',
+                icon: Icons.payments_rounded,
+                color: const Color(0xFFFF7900),
+                type: PaymentMethodType.orangeMoney,
+              ),
+              const SizedBox(height: 12),
+              _buildPaymentOption(
+                context,
+                ref,
+                title: 'Moov Money',
+                subtitle: 'Paiement mobile Moov',
+                icon: Icons.phone_android_rounded,
+                color: const Color(0xFF003399),
+                type: PaymentMethodType.moovMoney,
+              ),
+              const SizedBox(height: 12),
+              _buildPaymentOption(
+                context,
+                ref,
+                title: 'Carte Bancaire',
+                subtitle: 'Visa, Mastercard, etc.',
+                icon: Icons.credit_card_rounded,
+                color: const Color(0xFF635BFF),
+                type: PaymentMethodType.stripe,
+              ),
+              const SizedBox(height: 12),
+            ],
           ),
-          const SizedBox(height: 12),
-          _buildPaymentOption(
-            context,
-            ref,
-            title: 'Wave',
-            subtitle: 'Rapide et sans frais',
-            icon: Icons.water_drop_rounded,
-            color: const Color(0xFF49B8E7),
-            type: PaymentMethodType.wave,
-          ),
-          const SizedBox(height: 12),
-          _buildPaymentOption(
-            context,
-            ref,
-            title: 'Orange Money',
-            subtitle: 'Simple et sécurisé',
-            icon: Icons.payments_rounded,
-            color: const Color(0xFFFF7900),
-            type: PaymentMethodType.orangeMoney,
-          ),
-          const SizedBox(height: 12),
-          _buildPaymentOption(
-            context,
-            ref,
-            title: 'Moov Money',
-            subtitle: 'Paiement mobile Moov',
-            icon: Icons.phone_android_rounded,
-            color: const Color(0xFF003399),
-            type: PaymentMethodType.moovMoney,
-          ),
-          const SizedBox(height: 12),
-          _buildPaymentOption(
-            context,
-            ref,
-            title: 'Carte Bancaire',
-            subtitle: 'Visa, Mastercard, etc.',
-            icon: Icons.credit_card_rounded,
-            color: const Color(0xFF635BFF),
-            type: PaymentMethodType.stripe,
-          ),
-          const SizedBox(height: 12),
-        ],
+        ),
       ),
     );
   }
@@ -151,14 +155,7 @@ class PaymentSelectionSheet extends ConsumerWidget {
     return InkWell(
       onTap: () {
         Navigator.pop(context); // Ferme le BottomSheet
-
-        if (type == PaymentMethodType.wallet) {
-          // Paiement direct via portefeuille → naviguer vers le lecteur
-          context.push('/reader/$journalId', extra: true);
-          return;
-        }
-
-        // Navigation vers la page de paiement (mobile money / carte)
+        // Navigation vers la page de paiement (mobile money / carte / portefeuille)
         Navigator.push(
           context,
           MaterialPageRoute(

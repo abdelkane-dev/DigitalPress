@@ -9,18 +9,18 @@ class AdminDashboardScreen extends StatelessWidget {
     final cards = [
       _AdminCardData(
         title: 'Statistiques globales',
-        subtitle: 'Voir les performances générales des posters',
+        subtitle: 'Voir les performances générales des éditeurs',
         icon: Icons.bar_chart,
         route: '/admin/statistics',
       ),
       _AdminCardData(
-        title: 'Créer un poster',
-        subtitle: 'Ajouter un nouveau compte poster vérifié',
+        title: 'Créer un éditeur',
+        subtitle: 'Ajouter un nouveau compte éditeur vérifié',
         icon: Icons.person_add_alt_1,
         route: '/admin/create-poster',
       ),
       _AdminCardData(
-        title: 'Gérer les posters',
+        title: 'Gérer les éditeurs',
         subtitle: 'Voir, avertir, bannir ou débannir',
         icon: Icons.manage_accounts,
         route: '/admin/manage-posters',
@@ -32,10 +32,10 @@ class AdminDashboardScreen extends StatelessWidget {
         route: '/admin/manage-users',
       ),
       _AdminCardData(
-        title: 'Gérer les catégories',
-        subtitle: 'Créer, modifier ou supprimer des catégories',
-        icon: Icons.category_outlined,
-        route: '/admin/manage-categories',
+        title: 'Fonctionnalités à venir',
+        subtitle: 'Suivre et proposer les prochaines fonctionnalités',
+        icon: Icons.construction_outlined,
+        route: '/admin/feature-roadmap',
       ),
       _AdminCardData(
         title: 'Modération des avis',
@@ -53,7 +53,22 @@ class AdminDashboardScreen extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Admin Dashboard'),
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(6),
+              child: Image.asset(
+                'assets/app_icon.png',
+                width: 28,
+                height: 28,
+                fit: BoxFit.cover,
+              ),
+            ),
+            const SizedBox(width: 8),
+            const Text('Admin Dashboard'),
+          ],
+        ),
         centerTitle: true,
       ),
       body: Padding(
@@ -67,23 +82,39 @@ class AdminDashboardScreen extends StatelessWidget {
                 color: Colors.blue.shade700,
                 borderRadius: BorderRadius.circular(16),
               ),
-              child: const Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              child: Row(
                 children: [
-                  Text(
-                    'Bienvenue, Admin',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 22,
-                      fontWeight: FontWeight.bold,
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: const [
+                        Text(
+                          'Bienvenue, Admin',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 22,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        SizedBox(height: 8),
+                        Text(
+                          'Gérez les éditeurs, suivez leur activité et supervisez la plateforme.',
+                          style: TextStyle(
+                            color: Colors.white70,
+                            fontSize: 14,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                  SizedBox(height: 8),
-                  Text(
-                    'Gérez les posters, suivez leur activité et supervisez la plateforme.',
-                    style: TextStyle(
-                      color: Colors.white70,
-                      fontSize: 14,
+                  const SizedBox(width: 12),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: Image.asset(
+                      'assets/app_icon.png',
+                      width: 60,
+                      height: 60,
+                      fit: BoxFit.cover,
                     ),
                   ),
                 ],

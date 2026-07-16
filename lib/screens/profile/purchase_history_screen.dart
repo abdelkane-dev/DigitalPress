@@ -118,37 +118,41 @@ class _PurchaseHistoryScreenState
 
     return Container(
       color: Colors.white,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      child: Row(
-        children: filters.map((f) {
-          final isSelected = _selectedFilter == f.$1;
-          return Padding(
-            padding: const EdgeInsets.only(right: 8),
-            child: FilterChip(
-              selected: isSelected,
-              label: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(f.$3, size: 16,
-                      color: isSelected ? Colors.white : const Color(0xFF0A2647)),
-                  const SizedBox(width: 4),
-                  Text(f.$2),
-                ],
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        child: Row(
+          children: filters.map((f) {
+            final isSelected = _selectedFilter == f.$1;
+            return Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: FilterChip(
+                selected: isSelected,
+                label: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(f.$3, size: 16,
+                        color: isSelected ? Colors.white : const Color(0xFF0A2647)),
+                    const SizedBox(width: 4),
+                    Text(f.$2),
+                  ],
+                ),
+                onSelected: (_) => setState(() => _selectedFilter = f.$1),
+                selectedColor: const Color(0xFF0A2647),
+                labelStyle: TextStyle(
+                  color: isSelected ? Colors.white : const Color(0xFF0A2647),
+                  fontWeight: FontWeight.w600,
+                ),
+                backgroundColor: Colors.grey.shade100,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                showCheckmark: false,
               ),
-              onSelected: (_) => setState(() => _selectedFilter = f.$1),
-              selectedColor: const Color(0xFF0A2647),
-              labelStyle: TextStyle(
-                color: isSelected ? Colors.white : const Color(0xFF0A2647),
-                fontWeight: FontWeight.w600,
-              ),
-              backgroundColor: Colors.grey.shade100,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(20),
-              ),
-              showCheckmark: false,
-            ),
-          );
-        }).toList(),
+            );
+          }).toList(),
+        ),
       ),
     );
   }
@@ -221,25 +225,37 @@ class _PurchaseHistoryScreenState
                     overflow: TextOverflow.ellipsis,
                   ),
                   const SizedBox(height: 4),
-                  Row(
+                  Wrap(
+                    spacing: 10,
+                    runSpacing: 4,
+                    crossAxisAlignment: WrapCrossAlignment.center,
                     children: [
-                      Icon(Icons.access_time_rounded,
-                          size: 13, color: Colors.grey.shade500),
-                      const SizedBox(width: 4),
-                      Text(
-                        dateStr,
-                        style: TextStyle(
-                            fontSize: 12, color: Colors.grey.shade500),
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.access_time_rounded,
+                              size: 13, color: Colors.grey.shade500),
+                          const SizedBox(width: 4),
+                          Text(
+                            dateStr,
+                            style: TextStyle(
+                                fontSize: 12, color: Colors.grey.shade500),
+                          ),
+                        ],
                       ),
-                      const SizedBox(width: 10),
-                      Icon(statusIcon, size: 13, color: statusColor),
-                      const SizedBox(width: 4),
-                      Text(
-                        statusLabel,
-                        style: TextStyle(
-                            fontSize: 12,
-                            color: statusColor,
-                            fontWeight: FontWeight.w600),
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(statusIcon, size: 13, color: statusColor),
+                          const SizedBox(width: 4),
+                          Text(
+                            statusLabel,
+                            style: TextStyle(
+                                fontSize: 12,
+                                color: statusColor,
+                                fontWeight: FontWeight.w600),
+                          ),
+                        ],
                       ),
                     ],
                   ),

@@ -3,7 +3,8 @@ from rest_framework_simplejwt.views import TokenRefreshView
 from .views import (
     CustomTokenObtainPairView, RegisterView, ProfileView,
     ChangePasswordView, UserListView, UserDetailView,
-    PublisherProfileView, PublishersListView, PublicPublishersListView,
+    PublisherProfileView, PublicPublisherDetailView,
+    PublishersListView, PublicPublishersListView,
     AdminIssueWarningView, AdminPosterWarningsListView, MyWarningsView,
     PasswordResetRequestView, PasswordResetVerifyView, PasswordResetConfirmView,
 )
@@ -20,6 +21,7 @@ urlpatterns = [
     path('users/<int:pk>/', UserDetailView.as_view(), name='user_detail'),
     path('publishers/', PublishersListView.as_view(), name='publishers_list'),
     path('publishers/public/', PublicPublishersListView.as_view(), name='public_publishers_list'),
+    path('publishers/public/<int:pk>/', PublicPublisherDetailView.as_view(), name='public_publisher_profile'),
     path('publishers/<int:pk>/warnings/', AdminPosterWarningsListView.as_view(), name='publisher_warnings_admin'),
     path('warnings/', AdminPosterWarningsListView.as_view(), name='warnings_admin_all'),
     path('warnings/issue/', AdminIssueWarningView.as_view(), name='issue_warning'),

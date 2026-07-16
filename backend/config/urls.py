@@ -13,6 +13,7 @@ from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
 from core.health import health_check, api_index, root_index
+from apps.paiements.views import DemanderRetraitView, MesDemandesRetraitView
 
 urlpatterns = [
     path('', root_index, name='root'),
@@ -23,8 +24,11 @@ urlpatterns = [
     path('api/publications/', include('apps.publications.urls')),
     path('api/abonnements/', include('apps.abonnements.urls')),
     path('api/paiements/', include('apps.paiements.urls')),
+    path('api/entreprise/retrait/demander/', DemanderRetraitView.as_view(), name='legacy_demander_retrait'),
+    path('api/entreprise/retrait/mes-demandes/', MesDemandesRetraitView.as_view(), name='legacy_mes_demandes_retrait'),
     path('api/', include('apps.comptabilite.urls')),
     path('api/notifications/', include('apps.notifications.urls')),
+    path('api/roadmap/', include('apps.roadmap.urls')),
 ]
 
 # Serve media files in development

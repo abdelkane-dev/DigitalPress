@@ -4,14 +4,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/services/auth_service.dart';
 import '../notifications/notifications_screen.dart';
+import '../../widgets/notification_bell_button.dart';
 import '../categories/categories_screen.dart';
 import '../conversations/conversations_screen.dart';
+import '../roadmap/feature_roadmap_screen.dart';
 import '../profile/profile_screen.dart';
 import 'package:go_router/go_router.dart';
 import '../../model/publication.dart';
 import '../../core/services/publication_service.dart';
-import '../poster/create_articles_screen.dart';
-import '../admin/manage_categories_screen.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -24,10 +24,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     with SingleTickerProviderStateMixin {
   int _selectedIndex = 0;
   String _selectedCategory = 'Tous';
-  String? _selectedCategorySlug;
   int? _selectedPublisherId;
   final TextEditingController _searchController = TextEditingController();
   bool _isGridView = true;
+
+  final List<String> _categories = [
+    'Tous',
+    'Actualités',
+    'Sports',
+    'Culture',
+    'Économie',
+    'Tech',
+  ];
 
   @override
   void initState() {
@@ -55,22 +63,25 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     );
   }
 
-  Widget _buildBody() {
+  /// Admin et Éditeur n'ont plus de sens à voir la page "Catégories" (page
+  /// réservée au Lecteur) : elle est remplacée, pour ces deux rôles, par la
+  /// page "Fonctionnalités à venir" (fonctionnalités pas encore
+  /// implémentées mais utiles, à suivre/proposer).
+  bool _secondTabIsFeatureRoadmap(WidgetRef ref) {
     final user = ref.watch(authServiceProvider).currentUser;
+    return user != null && (user.isAdmin || user.isPublisher);
+  }
 
+  Widget _buildBody() {
     switch (_selectedIndex) {
       case 0:
         return _buildHomeTab();
       case 1:
-        if (user?.isAdmin == true) {
-          return const ManageCategoriesScreen();
-        }
-        if (user?.isPublisher == true) {
-          return const CreateArticleScreen();
-        }
-        return _buildCategoriesTab();
+        return _secondTabIsFeatureRoadmap(ref)
+            ? const FeatureRoadmapScreen()
+            : _buildCategoriesTab();
       case 2:
-        return _buildBookmarksTab();
+        return _buildConversationsTab();
       case 3:
         return _buildProfileTab();
       default:
@@ -89,7 +100,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
               search: _searchController.text.isEmpty
                   ? null
                   : _searchController.text,
-              category: _selectedCategorySlug,
+              category: _selectedCategory == 'Tous' ? null : _selectedCategory,
               publisherId: _selectedPublisherId,
             );
       },
@@ -98,7 +109,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           _buildModernAppBar(),
           SliverToBoxAdapter(child: _buildSearchBar()),
           SliverToBoxAdapter(child: _buildRoleAccessButton(ref)),
-          SliverToBoxAdapter(child: _buildPublisherChips()),
           SliverToBoxAdapter(child: _buildCategoryChips()),
           if (pubState.isLoading && items.isEmpty)
             const SliverToBoxAdapter(
@@ -167,7 +177,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       );
     }
 
-    // POSTER / ÉDITEUR
+    // ÉDITEUR
     if (user.isPublisher) {
       return Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -176,7 +186,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           child: ElevatedButton.icon(
             onPressed: () => context.push('/poster'),
             icon: const Icon(Icons.edit_note),
-            label: const Text('Accéder à l’espace Poster'),
+            label: const Text('Accéder à l’espace Éditeur'),
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.orange.shade700,
               foregroundColor: Colors.white,
@@ -196,73 +206,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   Widget _buildModernAppBar() {
     return SliverAppBar(
-      expandedHeight: 120.0,
+      expandedHeight: 150.0,
       floating: false,
       pinned: true,
       elevation: 0,
       backgroundColor: const Color(0xFF0A2647),
       flexibleSpace: FlexibleSpaceBar(
-        titlePadding: const EdgeInsets.only(left: 20, bottom: 16),
-        title: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Consumer(
-              builder: (context, ref, child) {
-                final user = ref.watch(authServiceProvider).currentUser;
-                final imagePath = user?.photoUrl;
-                ImageProvider? imageProvider;
-
-                if (imagePath != null) {
-                  if (imagePath.startsWith('http')) {
-                    imageProvider = NetworkImage(imagePath);
-                  } else {
-                    imageProvider = FileImage(File(imagePath));
-                  }
-                }
-
-                return GestureDetector(
-                  onTap: () {
-                    setState(() {
-                      _selectedIndex = 3; // Switch to Profile tab
-                    });
-                  },
-                  child: Container(
-                    width: 40,
-                    height: 40,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: const Color(0xFF2C74B3),
-                      border: Border.all(color: Colors.white, width: 2),
-                      image: imageProvider != null
-                          ? DecorationImage(
-                              image: imageProvider,
-                              fit: BoxFit.cover,
-                            )
-                          : null,
-                    ),
-                    child: imageProvider == null
-                        ? const Icon(
-                            Icons.person_rounded,
-                            color: Colors.white,
-                            size: 20,
-                          )
-                        : null,
-                  ),
-                );
-              },
-            ),
-            const SizedBox(width: 12),
-            const Text(
-              'DigitalPress',
-              style: TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w900,
-                fontSize: 20,
-                letterSpacing: -0.5,
-              ),
-            ),
-          ],
-        ),
         background: Container(
           decoration: const BoxDecoration(
             gradient: LinearGradient(
@@ -273,6 +222,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           ),
           child: Stack(
             children: [
+              // Cercles décoratifs
               Positioned(
                 right: -30,
                 top: -30,
@@ -297,6 +247,112 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                   ),
                 ),
               ),
+              // Logo + "DigitalPress" — en haut à gauche, même colonne que la photo
+              Positioned(
+                left: 20,
+                top: 52,
+                child: Row(
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: Image.asset(
+                        'assets/app_icon.png',
+                        width: 32,
+                        height: 32,
+                        fit: BoxFit.cover,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    const Text(
+                      'DigitalPress',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w900,
+                        fontSize: 20,
+                        letterSpacing: -0.5,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              // Photo de profil + nom utilisateur — en bas à gauche
+              Positioned(
+                left: 20,
+                bottom: 12,
+                child: Consumer(
+                  builder: (context, ref, child) {
+                    final user = ref.watch(authServiceProvider).currentUser;
+                    final imagePath = user?.photoUrl;
+                    final userName = user?.displayName ?? 'Lecteur';
+                    ImageProvider? imageProvider;
+
+                    if (imagePath != null) {
+                      if (imagePath.startsWith('http')) {
+                        imageProvider = NetworkImage(imagePath);
+                      } else {
+                        imageProvider = FileImage(File(imagePath));
+                      }
+                    }
+
+                    return Row(
+                      children: [
+                        GestureDetector(
+                          onTap: () {
+                            setState(() {
+                              _selectedIndex = 3; // Switch to Profile tab
+                            });
+                          },
+                          child: Container(
+                            width: 58,
+                            height: 58,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: const Color(0xFF2C74B3),
+                              border: Border.all(color: Colors.white, width: 2.5),
+                              image: imageProvider != null
+                                  ? DecorationImage(
+                                      image: imageProvider,
+                                      fit: BoxFit.cover,
+                                    )
+                                  : null,
+                            ),
+                            child: imageProvider == null
+                                ? const Icon(
+                                    Icons.person_rounded,
+                                    color: Colors.white,
+                                    size: 30,
+                                  )
+                                : null,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Text(
+                              'Bienvenue,',
+                              style: TextStyle(
+                                color: Colors.white70,
+                                fontSize: 14,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                            Text(
+                              userName,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 20,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    );
+                  },
+                ),
+              ),
             ],
           ),
         ),
@@ -313,8 +369,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
             });
           },
         ),
-        IconButton(
-          icon: const Icon(Icons.notifications_outlined, color: Colors.white),
+        NotificationBellButton(
+          color: Colors.white,
           onPressed: () {
             Navigator.push(
               context,
@@ -328,6 +384,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       ],
     );
   }
+
 
   Widget _buildSearchBar() {
     return Container(
@@ -362,7 +419,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                     });
                     ref.read(publicationListProvider.notifier).load(
                           refresh: true,
-                          category: _selectedCategorySlug,
+                          category: _selectedCategory == 'Tous'
+                              ? null
+                              : _selectedCategory,
                         );
                   },
                 )
@@ -377,7 +436,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           setState(() {});
           ref.read(publicationListProvider.notifier).load(
                 refresh: true,
-                category: _selectedCategorySlug,
+                category:
+                    _selectedCategory == 'Tous' ? null : _selectedCategory,
                 search: value.isEmpty ? null : value,
               );
         },
@@ -386,162 +446,58 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   }
 
   Widget _buildCategoryChips() {
-    final categoriesAsync = ref.watch(categoriesProvider);
-
-    return categoriesAsync.when(
-      loading: () => const SizedBox(height: 50),
-      error: (_, __) => const SizedBox.shrink(),
-      data: (categories) {
-        final categoryItems = [
-          'Tous',
-          ...categories.map((cat) => cat['name'].toString())
-        ];
-
-        return SizedBox(
-          height: 50,
-          child: ListView.builder(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            itemCount: categoryItems.length,
-            itemBuilder: (context, index) {
-              final category = categoryItems[index];
-              final categorySlug = category == 'Tous'
-                  ? null
-                  : categories
-                      .firstWhere(
-                        (cat) => cat['name'].toString() == category,
-                        orElse: () => <String, dynamic>{'slug': null},
-                      )['slug']
-                      ?.toString();
-              final isSelected = _selectedCategory == category;
-              return Padding(
-                padding: const EdgeInsets.only(right: 8),
-                child: FilterChip(
-                  selected: isSelected,
-                  label: Text(
-                    category,
-                    style: TextStyle(
-                      color:
-                          isSelected ? Colors.white : const Color(0xFF0A2647),
-                      fontWeight: FontWeight.w700,
-                      fontSize: 13,
-                    ),
-                  ),
-                  backgroundColor: Colors.white,
-                  selectedColor: const Color(0xFF2C74B3),
-                  checkmarkColor: Colors.white,
-                  elevation: isSelected ? 4 : 0,
-                  shadowColor: const Color(0xFF2C74B3).withAlpha(50),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    side: BorderSide(
-                      color: isSelected
-                          ? const Color(0xFF2C74B3)
-                          : Colors.grey.shade200,
-                      width: 1.5,
-                    ),
-                  ),
-                  onSelected: (selected) {
-                    setState(() {
-                      _selectedCategory = category;
-                      _selectedCategorySlug = categorySlug;
-                    });
-                    ref.read(publicationListProvider.notifier).load(
-                          refresh: true,
-                          category: categorySlug,
-                          search: _searchController.text.isEmpty
-                              ? null
-                              : _searchController.text,
-                          publisherId: _selectedPublisherId,
-                        );
-                  },
-                ),
-              );
-            },
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildPublisherChips() {
-    final publishersAsync = ref.watch(publicPublishersProvider);
-
-    return publishersAsync.when(
-      data: (publishers) {
-        if (publishers.isEmpty) return const SizedBox.shrink();
-
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Padding(
-              padding: EdgeInsets.only(left: 18, top: 12, bottom: 8),
-              child: Text(
-                'Journaux',
+    return SizedBox(
+      height: 50,
+      child: ListView.builder(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        itemCount: _categories.length,
+        itemBuilder: (context, index) {
+          final category = _categories[index];
+          final isSelected = _selectedCategory == category;
+          return Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: FilterChip(
+              selected: isSelected,
+              label: Text(
+                category,
                 style: TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF0A2647),
+                  color: isSelected ? Colors.white : const Color(0xFF0A2647),
+                  fontWeight: FontWeight.w700,
+                  fontSize: 13,
                 ),
               ),
-            ),
-            SizedBox(
-              height: 40,
-              child: ListView.builder(
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                itemCount: publishers.length + 1,
-                itemBuilder: (context, index) {
-                  final isAll = index == 0;
-                  final pub = isAll ? null : publishers[index - 1];
-                  final pubId = isAll ? null : pub?['id'] as int?;
-                  final name = isAll
-                      ? 'Toutes les Presses'
-                      : (pub?['company_name']?.toString() ?? 'Presse');
-                  final isSelected = _selectedPublisherId == pubId;
-
-                  return Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: ChoiceChip(
-                      selected: isSelected,
-                      label: Text(
-                        name,
-                        style: TextStyle(
-                          color: isSelected
-                              ? Colors.white
-                              : const Color(0xFF0A2647),
-                          fontWeight: FontWeight.bold,
-                          fontSize: 12,
-                        ),
-                      ),
-                      selectedColor: const Color(0xFF0A2647),
-                      backgroundColor: Colors.white,
-                      onSelected: (selected) {
-                        setState(() {
-                          _selectedPublisherId = pubId;
-                        });
-                        ref.read(publicationListProvider.notifier).load(
-                              refresh: true,
-                              category: _selectedCategory == 'Tous'
-                                  ? null
-                                  : _selectedCategory,
-                              search: _searchController.text.isEmpty
-                                  ? null
-                                  : _searchController.text,
-                              publisherId: pubId,
-                            );
-                      },
-                    ),
-                  );
-                },
+              backgroundColor: Colors.white,
+              selectedColor: const Color(0xFF2C74B3),
+              checkmarkColor: Colors.white,
+              elevation: isSelected ? 4 : 0,
+              shadowColor: const Color(0xFF2C74B3).withAlpha(50),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+                side: BorderSide(
+                  color: isSelected
+                      ? const Color(0xFF2C74B3)
+                      : Colors.grey.shade200,
+                  width: 1.5,
+                ),
               ),
+              onSelected: (selected) {
+                setState(() {
+                  _selectedCategory = category;
+                });
+                ref.read(publicationListProvider.notifier).load(
+                      refresh: true,
+                      category: category == 'Tous' ? null : category,
+                      search: _searchController.text.isEmpty
+                          ? null
+                          : _searchController.text,
+                      publisherId: _selectedPublisherId,
+                    );
+              },
             ),
-            const SizedBox(height: 8),
-          ],
-        );
-      },
-      loading: () => const SizedBox.shrink(),
-      error: (_, __) => const SizedBox.shrink(),
+          );
+        },
+      ),
     );
   }
 
@@ -559,7 +515,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     return SliverGrid(
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: 2,
-        childAspectRatio: 0.65,
+        childAspectRatio: 0.72,
         crossAxisSpacing: 16,
         mainAxisSpacing: 16,
       ),
@@ -612,7 +568,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     final imageUrl = publication.coverImage;
 
     return GestureDetector(
-      onTap: () => showSubscribeOrBuySelection(context, publication),
+      onTap: () => showSubscribeOrBuySelection(context, ref, publication),
       child: Container(
         decoration: BoxDecoration(
           color: Colors.white,
@@ -628,158 +584,157 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Stack(
-              children: [
-                ClipRRect(
-                  borderRadius: const BorderRadius.vertical(
-                    top: Radius.circular(20),
-                  ),
-                  child: Stack(
-                    children: [
-                      Image.network(
-                        imageUrl,
-                        height: 160,
-                        width: double.infinity,
-                        fit: BoxFit.cover,
-                        errorBuilder: (context, error, stackTrace) {
-                          return Container(
-                            height: 160,
-                            color: Colors.grey.shade200,
-                            child: Icon(
-                              Icons.image_not_supported_rounded,
-                              color: Colors.grey.shade400,
-                              size: 40,
+            Expanded(
+              child: Stack(
+                children: [
+                  ClipRRect(
+                    borderRadius: const BorderRadius.vertical(
+                      top: Radius.circular(20),
+                    ),
+                    child: Stack(
+                      children: [
+                        Image.network(
+                          imageUrl,
+                          height: double.infinity,
+                          width: double.infinity,
+                          fit: BoxFit.cover,
+                          errorBuilder: (context, error, stackTrace) {
+                            return Container(
+                              color: Colors.grey.shade200,
+                              child: Icon(
+                                Icons.image_not_supported_rounded,
+                                color: Colors.grey.shade400,
+                                size: 40,
+                              ),
+                            );
+                          },
+                        ),
+                        Container(
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
+                              colors: [
+                                Colors.transparent,
+                                Colors.black.withAlpha(100),
+                              ],
                             ),
-                          );
-                        },
-                      ),
-                      Container(
-                        height: 160,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (isNew)
+                    Positioned(
+                      top: 12,
+                      right: 12,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 9,
+                          vertical: 6,
+                        ),
                         decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            begin: Alignment.topCenter,
-                            end: Alignment.bottomCenter,
-                            colors: [
-                              Colors.transparent,
-                              Colors.black.withAlpha(100),
-                            ],
+                          color: const Color(0xFF2C74B3),
+                          borderRadius: BorderRadius.circular(8),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withAlpha(30),
+                              blurRadius: 8,
+                            ),
+                          ],
+                        ),
+                        child: const Text(
+                          'NOUVEAU',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 9,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: 0.5,
                           ),
                         ),
                       ),
-                    ],
-                  ),
-                ),
-                if (isNew)
+                    ),
                   Positioned(
                     top: 12,
-                    right: 12,
+                    left: 12,
                     child: Container(
                       padding: const EdgeInsets.symmetric(
-                        horizontal: 9,
-                        vertical: 6,
+                        horizontal: 8,
+                        vertical: 4,
                       ),
                       decoration: BoxDecoration(
-                        color: const Color(0xFF2C74B3),
-                        borderRadius: BorderRadius.circular(8),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withAlpha(30),
-                            blurRadius: 8,
-                          ),
-                        ],
+                        color: Colors.white.withAlpha(230),
+                        borderRadius: BorderRadius.circular(6),
                       ),
-                      child: const Text(
-                        'NOUVEAU',
-                        style: TextStyle(
-                          color: Colors.white,
+                      child: Text(
+                        category.toUpperCase(),
+                        style: const TextStyle(
+                          color: Color(0xFF0A2647),
                           fontSize: 9,
-                          fontWeight: FontWeight.w900,
+                          fontWeight: FontWeight.w800,
                           letterSpacing: 0.5,
                         ),
                       ),
                     ),
                   ),
-                Positioned(
-                  top: 12,
-                  left: 12,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 4,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withAlpha(230),
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: Text(
-                      category.toUpperCase(),
-                      style: const TextStyle(
-                        color: Color(0xFF0A2647),
-                        fontSize: 9,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: 0.5,
-                      ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w900,
+                      color: Color(0xFF0A2647),
+                      letterSpacing: -0.3,
                     ),
                   ),
-                ),
-              ],
-            ),
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w900,
-                        color: Color(0xFF0A2647),
-                        letterSpacing: -0.3,
-                      ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: Colors.grey.shade600,
+                      fontWeight: FontWeight.w500,
                     ),
-                    const SizedBox(height: 2),
-                    Text(
-                      subtitle,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.grey.shade600,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                    const Spacer(),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          '${price.toStringAsFixed(0)} F',
-                          style: const TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.w900,
-                            color: Color(0xFF2C74B3),
-                          ),
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        '${price.toStringAsFixed(0)} F',
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w900,
+                          color: Color(0xFF2C74B3),
                         ),
-                        Container(
-                          padding: const EdgeInsets.all(6),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF2C74B3),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: const Icon(
-                            Icons.arrow_forward_rounded,
-                            color: Colors.white,
-                            size: 16,
-                          ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.all(5),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF2C74B3),
+                          borderRadius: BorderRadius.circular(8),
                         ),
-                      ],
-                    ),
-                  ],
-                ),
+                        child: const Icon(
+                          Icons.arrow_forward_rounded,
+                          color: Colors.white,
+                          size: 14,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
               ),
             ),
           ],
@@ -863,52 +818,57 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                 padding: const EdgeInsets.all(12),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 3,
-                      ),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF2C74B3).withAlpha(25),
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      child: Text(
-                        category.toUpperCase(),
-                        style: const TextStyle(
-                          color: Color(0xFF2C74B3),
-                          fontSize: 9,
-                          fontWeight: FontWeight.w800,
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 3,
+                          ),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF2C74B3).withAlpha(25),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            category.toUpperCase(),
+                            style: const TextStyle(
+                              color: Color(0xFF2C74B3),
+                              fontSize: 9,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
                         ),
-                      ),
+                        const SizedBox(height: 6),
+                        Text(
+                          title,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w800,
+                            color: Color(0xFF0A2647),
+                            height: 1.2,
+                          ),
+                        ),
+                      ],
                     ),
-                    const SizedBox(height: 8),
-                    Text(
-                      title,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w800,
-                        color: Color(0xFF0A2647),
-                        height: 1.2,
-                      ),
-                    ),
-                    const Spacer(),
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         Text(
-                          '${price.toStringAsFixed(0)} FCFA',
+                          '${price.toStringAsFixed(0)} F',
                           style: const TextStyle(
-                            fontSize: 16,
+                            fontSize: 14,
                             fontWeight: FontWeight.w900,
                             color: Color(0xFF2C74B3),
                           ),
                         ),
                         ElevatedButton(
                           onPressed: () =>
-                              showSubscribeOrBuySelection(context, publication),
+                              showSubscribeOrBuySelection(context, ref, publication),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: const Color(0xFF0A2647),
                             foregroundColor: Colors.white,
@@ -917,8 +877,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                               borderRadius: BorderRadius.circular(8),
                             ),
                             padding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 6,
+                              horizontal: 10,
+                              vertical: 4,
                             ),
                             minimumSize: Size.zero,
                           ),
@@ -946,8 +906,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     return const CategoriesScreen();
   }
 
-  Widget _buildBookmarksTab() {
-    return const ConversationsListScreen();
+  Widget _buildConversationsTab() {
+    return const ConversationsScreen();
   }
 
   Widget _buildProfileTab() {
@@ -955,6 +915,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   }
 
   Widget _buildBottomNavigationBar() {
+    final isAdminOrEditeur = _secondTabIsFeatureRoadmap(ref);
+
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
@@ -977,14 +939,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                 label: 'Accueil',
                 index: 0,
               ),
+              // Lecteur : "Catégories". Admin/Éditeur : "À venir" (fonctionnalités
+              // pas encore implémentées, à suivre/proposer).
               _buildNavItem(
-                icon: Icons.category_rounded,
-                label: 'Catégories',
+                icon: isAdminOrEditeur
+                    ? Icons.construction_rounded
+                    : Icons.category_rounded,
+                label: isAdminOrEditeur ? 'À venir' : 'Catégories',
                 index: 1,
               ),
               _buildNavItem(
                 icon: Icons.forum_rounded,
-                label: 'Mes Conversations',
+                label: 'Conversations',
                 index: 2,
               ),
               _buildNavItem(

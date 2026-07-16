@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:dio/dio.dart';
 import '../../core/api/api_client.dart';
 import '../../config/api_constants.dart';
 
@@ -107,10 +108,26 @@ class _EditeurComptabiliteScreenState extends ConsumerState<EditeurComptabiliteS
         _accountController.clear();
         _loadComptaData();
       }
+    } on DioException catch (e) {
+      if (!mounted) return;
+      if (e.response?.statusCode == 404) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Service de retrait indisponible. Contactez l\'administrateur.',
+            ),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erreur lors de la demande : ${e.message}')),
+        );
+      }
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erreur lors de la demande: $e')),
+        SnackBar(content: Text('Erreur inattendue : $e')),
       );
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -194,7 +211,7 @@ class _EditeurComptabiliteScreenState extends ConsumerState<EditeurComptabiliteS
                     child: ElevatedButton.icon(
                       onPressed: soldeDisp > 0 ? () => _showWithdrawalDialog() : null,
                       icon: const Icon(Icons.download_rounded),
-                      label: const Text('Demander un Retrait Mobile Money'),
+                      label: const Text('Demander un Retrait'),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.orange.shade700,
                         foregroundColor: Colors.white,
@@ -237,15 +254,25 @@ class _EditeurComptabiliteScreenState extends ConsumerState<EditeurComptabiliteS
                             }
 
                             return ListTile(
-                              contentPadding: EdgeInsets.zero,
-                              title: Text(ecriture['libelle'] ?? 'Écriture sans libellé'),
-                              subtitle: Text('$dateStr\nCompte Débit: ${ecriture['compte_debit']} | Crédit: ${ecriture['compte_credit']}'),
-                              trailing: Text(
-                                '$prefix${montant.toStringAsFixed(0)} FCFA',
-                                style: TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  color: amountColor,
-                                  fontSize: 15,
+                              contentPadding: const EdgeInsets.symmetric(vertical: 4),
+                              title: Text(
+                                ecriture['libelle'] ?? 'Écriture sans libellé',
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              subtitle: Text(
+                                '$dateStr\nDébit: ${ecriture['compte_debit']} / Crédit: ${ecriture['compte_credit']}',
+                                overflow: TextOverflow.ellipsis,
+                                maxLines: 2,
+                              ),
+                              trailing: FittedBox(
+                                fit: BoxFit.scaleDown,
+                                child: Text(
+                                  '$prefix${montant.toStringAsFixed(0)} FCFA',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    color: amountColor,
+                                    fontSize: 15,
+                                  ),
                                 ),
                               ),
                             );
@@ -277,7 +304,19 @@ class _EditeurComptabiliteScreenState extends ConsumerState<EditeurComptabiliteS
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(title, style: TextStyle(color: Colors.grey.shade600, fontSize: 13, fontWeight: FontWeight.w500)),
+              Flexible(
+                child: Text(
+                  title,
+                  style: TextStyle(
+                    color: Colors.grey.shade600,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                  maxLines: 2,
+                ),
+              ),
+              const SizedBox(width: 4),
               Icon(icon, color: color, size: 20),
             ],
           ),

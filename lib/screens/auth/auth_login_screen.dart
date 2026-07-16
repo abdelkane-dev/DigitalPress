@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -23,6 +24,9 @@ class _AuthLoginScreenState extends ConsumerState<AuthLoginScreen> {
   bool _obscure = true;
   bool _isLoading = false;
   bool? _backendOnline;
+  String? _serverMessage;
+  bool _backendStatusVisible = true;
+  Timer? _backendStatusTimer;
 
   @override
   void initState() {
@@ -32,12 +36,40 @@ class _AuthLoginScreenState extends ConsumerState<AuthLoginScreen> {
   }
 
   Future<void> _checkBackend() async {
-    final ok = await ref.read(apiClientProvider).healthCheck();
-    if (mounted) setState(() => _backendOnline = ok);
+    if (mounted) {
+      setState(() {
+        _backendOnline = null;
+        _serverMessage = null;
+        _backendStatusVisible = true;
+      });
+    }
+    final health = await ref.read(apiClientProvider).healthCheck();
+    if (mounted) {
+      setState(() {
+        _backendOnline = health.isOnline;
+        _serverMessage = health.serverMessage;
+        _backendStatusVisible = true;
+      });
+    }
+    if (health.isOnline) {
+      _startBackendStatusHideTimer();
+    }
+  }
+
+  void _startBackendStatusHideTimer() {
+    _backendStatusTimer?.cancel();
+    _backendStatusTimer = Timer(const Duration(seconds: 10), () {
+      if (mounted) {
+        setState(() {
+          _backendStatusVisible = false;
+        });
+      }
+    });
   }
 
   @override
   void dispose() {
+    _backendStatusTimer?.cancel();
     _emailCtrl.dispose();
     _passwordCtrl.dispose();
     _nameCtrl.dispose();
@@ -108,7 +140,27 @@ class _AuthLoginScreenState extends ConsumerState<AuthLoginScreen> {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Icon(Icons.newspaper, color: Colors.white, size: 56),
+                      Container(
+                        width: 90,
+                        height: 90,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(22),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withAlpha(40),
+                              blurRadius: 15,
+                              offset: const Offset(0, 6),
+                            ),
+                          ],
+                        ),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(22),
+                          child: Image.asset(
+                            'assets/app_icon.png',
+                            fit: BoxFit.cover,
+                          ),
+                        ),
+                      ),
                       const SizedBox(height: 16),
                       Text(
                         _isRegister ? 'Créer un compte' : 'Connexion',
@@ -151,8 +203,7 @@ class _AuthLoginScreenState extends ConsumerState<AuthLoginScreen> {
                                 : Icons.visibility_off_outlined,
                             color: Colors.grey,
                           ),
-                          onPressed: () =>
-                              setState(() => _obscure = !_obscure),
+                          onPressed: () => setState(() => _obscure = !_obscure),
                         ),
                         validator: (v) {
                           if (v == null || v.isEmpty) {
@@ -221,8 +272,6 @@ class _AuthLoginScreenState extends ConsumerState<AuthLoginScreen> {
                       ),
                       const SizedBox(height: 12),
                       _backendStatusBanner(),
-                      const SizedBox(height: 12),
-                      _demoHint(),
                     ],
                   ),
                 ),
@@ -235,6 +284,9 @@ class _AuthLoginScreenState extends ConsumerState<AuthLoginScreen> {
   }
 
   Widget _backendStatusBanner() {
+    if (!_backendStatusVisible) {
+      return const SizedBox.shrink();
+    }
     if (_backendOnline == null) {
       return const SizedBox(
         height: 20,
@@ -251,8 +303,8 @@ class _AuthLoginScreenState extends ConsumerState<AuthLoginScreen> {
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
         color: online
-            ? const Color(0xFF06D6A0).withValues(alpha: 0.2)
-            : const Color(0xFFE63946).withValues(alpha: 0.2),
+            ? const Color.fromRGBO(6, 214, 160, 0.2)
+            : const Color.fromRGBO(230, 57, 70, 0.2),
         borderRadius: BorderRadius.circular(10),
         border: Border.all(
           color: online ? const Color(0xFF06D6A0) : const Color(0xFFE63946),
@@ -268,9 +320,10 @@ class _AuthLoginScreenState extends ConsumerState<AuthLoginScreen> {
           const SizedBox(width: 8),
           Expanded(
             child: Text(
-              online
-                  ? 'Backend connecté'
-                  : 'Backend inaccessible — lancez start_backend.ps1',
+              buildHealthStatusMessage(
+                isOnline: online,
+                serverMessage: _serverMessage,
+              ),
               style: const TextStyle(color: Colors.white, fontSize: 12),
             ),
           ),
@@ -282,23 +335,6 @@ class _AuthLoginScreenState extends ConsumerState<AuthLoginScreen> {
               constraints: const BoxConstraints(),
             ),
         ],
-      ),
-    );
-  }
-
-  Widget _demoHint() {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: const Text(
-        'Comptes démo (backend Django) :\n'
-        'admin / Admin123!\n'
-        'editeur_afrique / Editeur@2024!',
-        textAlign: TextAlign.center,
-        style: TextStyle(color: Colors.white70, fontSize: 12),
       ),
     );
   }

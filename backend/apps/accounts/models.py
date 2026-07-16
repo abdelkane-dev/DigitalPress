@@ -17,11 +17,6 @@ class User(AbstractUser):
     name = models.CharField(max_length=255, blank=True)
     phone = models.CharField(max_length=20, blank=True)
     avatar = models.URLField(blank=True)
-    favorite_categories = models.ManyToManyField(
-        'publications.Category',
-        blank=True,
-        related_name='favorited_by',
-    )
     is_verified = models.BooleanField(default=False)
     solde = models.DecimalField(max_digits=12, decimal_places=2, default=0.00, help_text="Solde portefeuille client/lecteur")
     created_at = models.DateTimeField(auto_now_add=True)

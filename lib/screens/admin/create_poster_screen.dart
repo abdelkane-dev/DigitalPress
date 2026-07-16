@@ -39,7 +39,7 @@ class _CreatePosterScreenState extends ConsumerState<CreatePosterScreen> {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Compte poster créé avec succès ! ✓'),
+            content: Text('Compte éditeur créé avec succès ! ✓'),
             backgroundColor: Colors.green,
           ),
         );
@@ -70,7 +70,7 @@ class _CreatePosterScreenState extends ConsumerState<CreatePosterScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Créer un poster'),
+        title: const Text('Créer un éditeur'),
         centerTitle: true,
       ),
       body: SingleChildScrollView(

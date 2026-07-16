@@ -87,7 +87,7 @@ class PosterDetailsScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
-      appBar: AppBar(title: const Text('Détails du poster'), centerTitle: true),
+      appBar: AppBar(title: const Text('Détails de l\'éditeur'), centerTitle: true),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -204,7 +204,7 @@ class PosterDetailsScreen extends StatelessWidget {
               title: 'Historique des avertissements',
               children: [
                 if (poster.warningHistory.isEmpty)
-                  const Text('Aucun avertissement pour ce poster.')
+                  const Text('Aucun avertissement pour cet éditeur.')
                 else
                   ...poster.warningHistory.reversed.map(
                     (warning) => Container(

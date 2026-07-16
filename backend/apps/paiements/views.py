@@ -10,7 +10,7 @@ from .serializers import (
     DemandeRetraitCreateSerializer, AdminTraiterRetraitSerializer,
 )
 from .movapay import movapay_service, verify_webhook_signature
-from apps.accounts.permissions import IsAdmin, IsPublisher
+from apps.accounts.permissions import IsAdmin, IsPublisher, IsAdminOrPublisher
 from apps.accounts.models import PublisherProfile
 from apps.comptabilite.utils import enregistrer_ecriture
 from apps.notifications.models import Notification
@@ -250,6 +250,18 @@ class VerifierPaiementView(APIView):
         if tx.payer_id != request.user.id and request.user.role != 'admin':
             return Response({'error': 'Accès refusé à cette transaction.'}, status=403)
 
+        # Si la transaction est déjà à un statut final, ou si elle a été réglée
+        # via le portefeuille interne (pas de référence Movapay), on renvoie
+        # directement le résultat sans interroger la passerelle externe.
+        is_wallet = isinstance(tx.metadata, dict) and tx.metadata.get('mode_paiement') == 'wallet'
+        is_final = tx.status in ('success', 'failed', 'cancelled', 'refunded')
+        if is_final or is_wallet:
+            return Response({
+                'transaction': TransactionSerializer(tx).data,
+                'movapay_status': tx.status,
+                'message': 'Transaction déjà traitée.',
+            })
+
         # Vérifier auprès de Movapay
         result = movapay_service.verifier_paiement(
             reference=data['reference'],
@@ -425,7 +437,7 @@ class AdminTransactionsView(generics.ListAPIView):
 
 class DemanderRetraitView(generics.CreateAPIView):
     serializer_class = DemandeRetraitCreateSerializer
-    permission_classes = [permissions.IsAuthenticated, IsPublisher]
+    permission_classes = [permissions.IsAuthenticated, IsAdminOrPublisher]
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data, context={'request': request})

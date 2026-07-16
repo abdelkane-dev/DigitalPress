@@ -234,7 +234,7 @@ class _ManageUsersScreenState extends ConsumerState<ManageUsersScreen> {
                                     child: Row(
                                       children: [
                                         CircleAvatar(
-                                          backgroundColor: _roleColor(role).withOpacity(0.15),
+                                          backgroundColor: _roleColor(role).withValues(alpha: 0.15),
                                           child: Text(
                                             (user['username']?.toString() ?? '?')[0].toUpperCase(),
                                             style: TextStyle(color: _roleColor(role), fontWeight: FontWeight.bold),
@@ -258,7 +258,7 @@ class _ManageUsersScreenState extends ConsumerState<ManageUsersScreen> {
                                                   Container(
                                                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                                                     decoration: BoxDecoration(
-                                                      color: _roleColor(role).withOpacity(0.12),
+                                                      color: _roleColor(role).withValues(alpha: 0.12),
                                                       borderRadius: BorderRadius.circular(8),
                                                     ),
                                                     child: Text(

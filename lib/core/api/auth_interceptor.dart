@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import '../services/session_manager.dart';
 import '../storage/secure_storage_service.dart';
 
 /// Intercepteur moderne chargé de l'authentification.
@@ -87,8 +88,12 @@ class AuthInterceptor extends Interceptor {
       }
       _failedRequestsQueue.clear();
 
+      // Suppression des tokens corrompus/expirés du stockage sécurisé.
       await _secureStorageService.deleteAll();
-      // Ici, on pourrait déclencher une redirection vers le Login via un stream global.
+
+      // Signal global → le widget racine appellera AuthService.signOut()
+      // pour vider l'état Riverpod et rediriger vers l'écran de connexion.
+      SessionManager.forceLogout();
 
       return handler.next(err);
     } finally {

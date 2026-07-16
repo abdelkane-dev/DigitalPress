@@ -2,120 +2,224 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:logger/logger.dart';
+import '../api/api_client.dart';
+import '../../config/api_constants.dart';
 
-/// Fonction de haut niveau pour gérer les messages en arrière-plan.
-/// Doit être en dehors de toute classe pour être accessible par l'Isolate Firebase.
+/// Handler global pour les messages reçus quand l'app est fermée ou en arrière-plan.
+/// DOIT être une fonction de haut niveau (pas une méthode de classe).
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
-  // Si vous avez besoin d'initialiser Firebase ici, faites-le :
-  // await Firebase.initializeApp();
   if (kDebugMode) {
-    print("Message en arrière-plan reçu : ${message.messageId}");
+    print('[FCM Background] Message reçu : ${message.messageId}');
   }
 }
 
-/// Fournisseur pour le service de notifications push via Firebase Cloud Messaging (FCM).
+// ---------------------------------------------------------------------------
+// Navigation depuis une notification (quand l'app est fermée/background)
+// On stocke le router GoRouter dès que l'app est lancée pour pouvoir naviguer
+// depuis le service de notifications sans accès au BuildContext.
+// ---------------------------------------------------------------------------
+class NotificationNavigator {
+  static GoRouter? _router;
+
+  static void setRouter(GoRouter router) {
+    _router = router;
+  }
+
+  static void goTo(String path) {
+    try {
+      _router?.push(path);
+    } catch (e) {
+      if (kDebugMode) debugPrint('[NotificationNavigator] Erreur navigation : $e');
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Provider Riverpod
+// ---------------------------------------------------------------------------
 final notificationServiceProvider = Provider<NotificationService>((ref) {
-  return NotificationService();
+  final apiClient = ref.watch(apiClientProvider);
+  return NotificationService(apiClient);
 });
 
-/// Service gérant la réception des notifications et l'abonnement aux topics.
+/// Service gérant les notifications push Firebase Cloud Messaging (FCM).
+///
+/// Responsabilités :
+///   1. Demander la permission de notifications à l'utilisateur.
+///   2. Obtenir le token FCM et l'enregistrer sur le backend.
+///   3. Afficher une notification locale quand l'app est en premier plan.
+///   4. Naviguer vers l'article concerné quand l'utilisateur tape la notification.
 class NotificationService {
+  final ApiClient _apiClient;
   final _fcm = FirebaseMessaging.instance;
   final _localNotifications = FlutterLocalNotificationsPlugin();
   final _logger = Logger();
 
-  /// Canal de notification pour Android (nécessaire pour le premier plan).
+  NotificationService(this._apiClient);
+
+  /// Canal Android haute importance (requis pour Android 8+).
   static const _androidChannel = AndroidNotificationChannel(
     'high_importance_channel',
     'High Importance Notifications',
-    description: 'Ce canal est utilisé pour les notifications importantes.',
+    description: 'Canal utilisé pour les notifications importantes de DigitalPress.',
     importance: Importance.max,
+    playSound: true,
   );
 
-  /// Initialise le service, demande les permissions et configure les écouteurs.
+  // ---------------------------------------------------------------------------
+  // Initialisation principale — appeler après la connexion de l'utilisateur.
+  // ---------------------------------------------------------------------------
   Future<void> init() async {
-    // 0. Initialisation des notifications locales (pour le premier plan Android)
+    // ── 0. Initialisation des notifications locales ────────────────────────
     const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
-    const iosInit = DarwinInitializationSettings();
+    const iosInit = DarwinInitializationSettings(
+      requestAlertPermission: true,
+      requestBadgePermission: true,
+      requestSoundPermission: true,
+    );
     const initSettings = InitializationSettings(
       android: androidInit,
       iOS: iosInit,
     );
 
-    await _localNotifications.initialize(initSettings);
+    await _localNotifications.initialize(
+      initSettings,
+      onDidReceiveNotificationResponse: (details) {
+        // L'utilisateur a tapé la notification quand l'app était en premier plan.
+        _navigateFromPayload(details.payload);
+      },
+    );
 
     await _localNotifications
         .resolvePlatformSpecificImplementation<
-          AndroidFlutterLocalNotificationsPlugin
-        >()
+            AndroidFlutterLocalNotificationsPlugin>()
         ?.createNotificationChannel(_androidChannel);
 
-    // 1. Configurer le handler de background (doit être fait tôt)
+    // ── 1. Handler background (doit être enregistré très tôt) ─────────────
     FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
 
-    // 2. Demander les permissions (obligatoire sur iOS/Android 13+)
+    // ── 2. Demande de permission ───────────────────────────────────────────
     final settings = await _fcm.requestPermission(
       alert: true,
       badge: true,
       sound: true,
+      announcement: false,
       provisional: false,
     );
 
-    if (settings.authorizationStatus == AuthorizationStatus.authorized) {
-      _logger.i('Permissions de notifications accordées');
+    if (settings.authorizationStatus != AuthorizationStatus.authorized &&
+        settings.authorizationStatus != AuthorizationStatus.provisional) {
+      _logger.w('[FCM] Permissions refusées par l\'utilisateur.');
+      return;
+    }
 
-      // 3. Récupérer le Token FCM (à envoyer à votre backend)
-      final token = await _fcm.getToken();
-      _logger.i('Token FCM : $token');
+    _logger.i('[FCM] Permissions accordées.');
 
-      // 4. Gérer les messages quand l'app est au premier plan
-      FirebaseMessaging.onMessage.listen((RemoteMessage message) {
-        final notification = message.notification;
-        final android = message.notification?.android;
+    // ── 3. Token FCM → enregistrement backend ─────────────────────────────
+    final token = await _fcm.getToken();
+    if (token != null) {
+      await _registerTokenWithBackend(token);
+    }
 
-        if (notification != null && android != null && !kIsWeb) {
-          _localNotifications.show(
-            notification.hashCode,
-            notification.title,
-            notification.body,
-            NotificationDetails(
-              android: AndroidNotificationDetails(
-                _androidChannel.id,
-                _androidChannel.name,
-                channelDescription: _androidChannel.description,
-                icon: android.smallIcon,
-              ),
-            ),
-          );
-        }
+    // Renouvellement automatique du token (ex: réinstallation de l'app).
+    _fcm.onTokenRefresh.listen((newToken) async {
+      _logger.i('[FCM] Token renouvelé.');
+      await _registerTokenWithBackend(newToken);
+    });
 
-        _logger.i('Notification reçue au premier plan !');
-        _logger.i('Contenu : ${notification?.title} - ${notification?.body}');
-      });
+    // ── 4. Message reçu en PREMIER PLAN → notification locale ─────────────
+    FirebaseMessaging.onMessage.listen((RemoteMessage message) {
+      _logger.i('[FCM] Message premier plan : ${message.notification?.title}');
+      final notification = message.notification;
+      if (notification == null) return;
 
-      // 5. Gérer le clic sur une notification quand l'app est en background
-      FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
-        _logger.i('L\'utilisateur a cliqué sur la notification !');
-        // Naviguer vers une page spécifique si nécessaire
-      });
+      final articleId = message.data['article_id'];
+      final payload = articleId != null ? '/article/$articleId' : null;
 
-      // 6. Gérer l'ouverture de l'app via une notification (quand l'app était fermée)
-      final initialMessage = await _fcm.getInitialMessage();
-      if (initialMessage != null) {
-        _logger.i(
-          'App lancée via une notification : ${initialMessage.messageId}',
-        );
+      _localNotifications.show(
+        notification.hashCode,
+        notification.title,
+        notification.body,
+        NotificationDetails(
+          android: AndroidNotificationDetails(
+            _androidChannel.id,
+            _androidChannel.name,
+            channelDescription: _androidChannel.description,
+            icon: notification.android?.smallIcon ?? '@mipmap/ic_launcher',
+            importance: Importance.max,
+            priority: Priority.high,
+            playSound: true,
+          ),
+          iOS: const DarwinNotificationDetails(
+            presentAlert: true,
+            presentBadge: true,
+            presentSound: true,
+          ),
+        ),
+        payload: payload,
+      );
+    });
+
+    // ── 5. L'utilisateur tape la notification — app en ARRIÈRE-PLAN ────────
+    FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
+      _logger.i('[FCM] Notification tapée (background).');
+      final articleId = message.data['article_id'];
+      if (articleId != null) {
+        NotificationNavigator.goTo('/article/$articleId?scrollToComments=true');
       }
-    } else {
-      _logger.w('Permissions de notifications refusées ou non accordées');
+    });
+
+    // ── 6. L'app a été FERMÉE puis relancée via une notification ──────────
+    final initialMessage = await _fcm.getInitialMessage();
+    if (initialMessage != null) {
+      _logger.i('[FCM] App lancée via notification.');
+      final articleId = initialMessage.data['article_id'];
+      if (articleId != null) {
+        // Petite attente pour laisser l'UI se construire.
+        await Future.delayed(const Duration(milliseconds: 800));
+        NotificationNavigator.goTo('/article/$articleId?scrollToComments=true');
+      }
     }
   }
 
-  /// S'abonner à un sujet spécifique (ex: 'news', 'promotions').
+  // ---------------------------------------------------------------------------
+  // Enregistrement du token FCM sur le backend Django.
+  // ---------------------------------------------------------------------------
+  Future<void> _registerTokenWithBackend(String token) async {
+    try {
+      await _apiClient.post(
+        ApiConstants.registerFcm,
+        data: {'token': token, 'device_type': 'android'},
+      );
+      _logger.i('[FCM] Token enregistré sur le backend.');
+    } catch (e) {
+      _logger.e('[FCM] Erreur enregistrement token : $e');
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Navigation depuis un payload de notification locale.
+  // ---------------------------------------------------------------------------
+  void _navigateFromPayload(String? payload) {
+    if (payload == null) return;
+    // payload format : '/article/42'
+    NotificationNavigator.goTo('$payload?scrollToComments=true');
+  }
+
+  // ---------------------------------------------------------------------------
+  // Abonnement à un sujet FCM (ex: 'news').
+  // ---------------------------------------------------------------------------
   Future<void> subscribeToTopic(String topic) async {
     await _fcm.subscribeToTopic(topic);
-    _logger.i('Abonné au sujet : $topic');
+    _logger.i('[FCM] Abonné au sujet : $topic');
+  }
+
+  /// Désabonnement d'un sujet FCM.
+  Future<void> unsubscribeFromTopic(String topic) async {
+    await _fcm.unsubscribeFromTopic(topic);
+    _logger.i('[FCM] Désabonné du sujet : $topic');
   }
 }

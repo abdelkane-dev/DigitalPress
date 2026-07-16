@@ -35,7 +35,7 @@ class _ManagePostersScreenState extends ConsumerState<ManagePostersScreen> {
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text('Poster concerné : ${poster.fullName}'),
+              Text('Éditeur concerné : ${poster.fullName}'),
               const SizedBox(height: 12),
               TextField(
                 controller: reasonController,
@@ -102,7 +102,7 @@ class _ManagePostersScreenState extends ConsumerState<ManagePostersScreen> {
       builder: (context) {
         return AlertDialog(
           title: Text(
-            '${actionText[0].toUpperCase()}${actionText.substring(1)} ce poster',
+            '${actionText[0].toUpperCase()}${actionText.substring(1)} cet éditeur',
           ),
           content: Text(
             'Voulez-vous vraiment $actionText ${poster.fullName} ?',
@@ -236,7 +236,7 @@ class _ManagePostersScreenState extends ConsumerState<ManagePostersScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Gérer les posters'),
+        title: const Text('Gérer les éditeurs'),
         centerTitle: true,
         actions: [
           IconButton(
@@ -254,7 +254,7 @@ class _ManagePostersScreenState extends ConsumerState<ManagePostersScreen> {
               controller: _searchController,
               onChanged: (_) => setState(() {}),
               decoration: InputDecoration(
-                hintText: 'Rechercher un poster...',
+                hintText: 'Rechercher un éditeur...',
                 prefixIcon: const Icon(Icons.search),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(14),
@@ -280,7 +280,7 @@ class _ManagePostersScreenState extends ConsumerState<ManagePostersScreen> {
           const SizedBox(height: 10),
           Expanded(
             child: filteredPosters.isEmpty
-                ? const Center(child: Text('Aucun poster trouvé.'))
+                ? const Center(child: Text('Aucun éditeur trouvé.'))
                 : ListView.separated(
                     padding: const EdgeInsets.all(16),
                     itemCount: filteredPosters.length,
