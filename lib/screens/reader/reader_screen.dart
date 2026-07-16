@@ -806,45 +806,60 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
           final pdfUrl = sanitizeMediaUrl(simpleLinkMatch.group(2) ?? '');
           widgets.add(Padding(
             padding: const EdgeInsets.symmetric(vertical: 12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
+            child: Container(
+              height: 550, // Hauteur augmentée pour une meilleure lisibilité
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: isNightMode ? Colors.white24 : Colors.grey.shade300,
+                ),
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(16),
+                child: Stack(
                   children: [
-                    const Icon(Icons.picture_as_pdf, color: Colors.red),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        pdfTitle,
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 15,
-                          color: themeHeaderColor,
+                    SfPdfViewer.network(
+                      pdfUrl,
+                      scrollDirection: PdfScrollDirection.horizontal,
+                      pageLayoutMode: PdfPageLayoutMode.single,
+                      enableDoubleTapZooming: true,
+                      onDocumentLoadFailed: (details) {
+                        debugPrint('Failed to load inline PDF: ${details.description}');
+                      },
+                    ),
+                    Positioned(
+                      top: 12,
+                      right: 12,
+                      child: Material(
+                        color: Colors.black.withValues(alpha: 0.6),
+                        borderRadius: BorderRadius.circular(20),
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(20),
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => FullScreenPdfViewer(
+                                  pdfUrl: pdfUrl,
+                                  title: pdfTitle,
+                                ),
+                              ),
+                            );
+                          },
+                          child: const Padding(
+                            padding: EdgeInsets.all(8),
+                            child: Icon(
+                              Icons.fullscreen_rounded,
+                              color: Colors.white,
+                              size: 28,
+                            ),
+                          ),
                         ),
                       ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 8),
-                Container(
-                  height: 400,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(
-                      color: isNightMode ? Colors.white24 : Colors.grey.shade300,
-                    ),
-                  ),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(16),
-                    child: SfPdfViewer.network(
-                      pdfUrl,
-                      onDocumentLoadFailed: (details) {
-                        debugPrint('Failed to load inline PDF: ${details.description}');
-                      },
-                    ),
-                  ),
-                ),
-              ],
+              ),
             ),
           ));
           continue;
@@ -870,3 +885,35 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     );
   }
 }
+
+class FullScreenPdfViewer extends StatelessWidget {
+  final String pdfUrl;
+  final String title;
+
+  const FullScreenPdfViewer({
+    super.key,
+    required this.pdfUrl,
+    required this.title,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(title.isNotEmpty ? title : 'Document PDF'),
+        leading: IconButton(
+          icon: const Icon(Icons.close_rounded),
+          onPressed: () => Navigator.pop(context),
+        ),
+      ),
+      body: SfPdfViewer.network(
+        pdfUrl,
+        enableDoubleTapZooming: true,
+        onDocumentLoadFailed: (details) {
+          debugPrint('Failed to load fullscreen PDF: ${details.description}');
+        },
+      ),
+    );
+  }
+}
+
