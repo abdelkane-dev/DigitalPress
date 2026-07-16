@@ -46,3 +46,7 @@ whitenoise==6.7.0
 # ─── Dev / Test ──────────────────────────────────────────────
 pytest-django==4.8.0
 factory-boy==3.3.1
+
+# ─── Render / Cloud deployment ───────────────────────────────
+# Permet de parser DATABASE_URL injecté automatiquement par Render PostgreSQL
+dj-database-url==2.2.0

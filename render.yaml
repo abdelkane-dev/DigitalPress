@@ -1,0 +1,85 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Digital Press — render.yaml
+# Configuration Infrastructure-as-Code pour Render.com
+# Déploie : Web Service Django + PostgreSQL managé + Disk persistant (media)
+#
+# Doc : https://render.com/docs/yaml-spec
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+  # ── 1. Web Service Django ──────────────────────────────────────────────────
+  - type: web
+    name: digitalpress-api
+    runtime: python
+    region: frankfurt  # Europe — le plus proche de l'Afrique de l'Ouest
+    plan: free         # Passer à "starter" ($7/mois) pour éviter le sleep
+
+    # Dossier racine du backend Django
+    rootDir: backend
+
+    # Commande de build (install + migrate + collectstatic)
+    buildCommand: "./build.sh"
+
+    # Commande de démarrage en production avec Gunicorn
+    startCommand: "gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --timeout 120 --access-logfile - --error-logfile -"
+
+    # Disk persistant pour les fichiers media (PDFs, images, vidéos)
+    disk:
+      name: digitalpress-media
+      mountPath: /opt/render/project/media
+      sizeGB: 1  # 1 Go gratuit
+
+    # Variables d'environnement
+    envVars:
+      # Indique à Django qu'on est sur Render
+      - key: RENDER
+        value: "True"
+
+      # Django
+      - key: SECRET_KEY
+        generateValue: true  # Render génère une clé aléatoire sécurisée
+
+      - key: DEBUG
+        value: "False"
+
+      - key: USE_SQLITE
+        value: "False"
+
+      # CORS : autoriser toutes les origines (Flutter mobile n'a pas d'origine fixe)
+      - key: CORS_ALLOW_ALL
+        value: "True"
+
+      # Sécurité (Render gère SSL en amont — pas de redirect ici)
+      - key: SECURE_SSL_REDIRECT
+        value: "False"
+
+      # Base de données — liée automatiquement au service PostgreSQL ci-dessous
+      - key: DATABASE_URL
+        fromDatabase:
+          name: digitalpress-db
+          property: connectionString
+
+      # Movapay — à renseigner manuellement dans le dashboard Render
+      - key: MOVAPAY_API_KEY
+        sync: false  # Valeur à saisir manuellement
+
+      - key: MOVAPAY_SECRET
+        sync: false  # Valeur à saisir manuellement
+
+      - key: MOVAPAY_BASE_URL
+        value: "https://api.movapay.com/v1"
+
+      # JWT
+      - key: JWT_ACCESS_MINUTES
+        value: "60"
+
+      - key: JWT_REFRESH_DAYS
+        value: "7"
+
+  # ── 2. Base de données PostgreSQL managée ─────────────────────────────────
+databases:
+  - name: digitalpress-db
+    databaseName: digitalpress
+    user: dp_user
+    region: frankfurt
+    plan: free  # 90 jours gratuit, puis $7/mois (PostgreSQL Starter)

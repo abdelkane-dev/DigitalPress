@@ -5,9 +5,13 @@ import os
 from pathlib import Path
 from datetime import timedelta
 from dotenv import load_dotenv
+import dj_database_url
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / '.env')
+
+# Détection automatique de l'environnement Render
+IS_RENDER = os.getenv('RENDER', 'False') == 'True'
 
 DEBUG = os.getenv('DEBUG', 'True') == 'True'
 
@@ -18,12 +22,16 @@ if not DEBUG and SECRET_KEY == 'change-me-in-production-please':
         'Définissez une variable d\'environnement SECRET_KEY forte et unique avant le déploiement.'
     )
 
-ALLOWED_HOSTS = ['*'] if DEBUG else os.getenv('ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
+_base_hosts = ['*'] if DEBUG else os.getenv('ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
+# Ajoute automatiquement le hostname public Render (ex: digitalpress-api.onrender.com)
+_render_host = os.getenv('RENDER_EXTERNAL_HOSTNAME', '')
+ALLOWED_HOSTS = list(set(_base_hosts + ([_render_host] if _render_host else [])))
 
 # ─── SÉCURITÉ PRODUCTION ─────────────────────────────────────────────────────
 # Activé uniquement quand DEBUG=False, pour ne jamais gêner le développement local.
 if not DEBUG:
-    SECURE_SSL_REDIRECT = os.getenv('SECURE_SSL_REDIRECT', 'True') == 'True'
+    # Render gère le SSL en amont (proxy) — ne pas rediriger ici sinon boucle infinie
+    SECURE_SSL_REDIRECT = False if IS_RENDER else (os.getenv('SECURE_SSL_REDIRECT', 'True') == 'True')
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
     SECURE_HSTS_SECONDS = int(os.getenv('SECURE_HSTS_SECONDS', '31536000'))
@@ -84,6 +92,8 @@ INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
+    # WhiteNoise : sert les fichiers statiques sans Nginx (requis sur Render)
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -124,19 +134,30 @@ if USE_SQLITE:
         }
     }
 else:
-    DATABASES = {
-        'default': {
-            'ENGINE': 'django.db.backends.postgresql',
-            'NAME': os.getenv('DATABASE_NAME', 'digitalpress'),
-            'USER': os.getenv('DATABASE_USER', 'dp_user'),
-            'PASSWORD': os.getenv('DATABASE_PASSWORD', 'dp_pass'),
-            'HOST': os.getenv('DATABASE_HOST', 'localhost'),
-            'PORT': os.getenv('DATABASE_PORT', '5432'),
-            'OPTIONS': {
-                'connect_timeout': 10,
-            },
+    # Sur Render, DATABASE_URL est injecté automatiquement — priorité absolue
+    _database_url = os.getenv('DATABASE_URL', '')
+    if _database_url:
+        DATABASES = {
+            'default': dj_database_url.parse(
+                _database_url,
+                conn_max_age=600,
+                conn_health_checks=True,
+            )
         }
-    }
+    else:
+        DATABASES = {
+            'default': {
+                'ENGINE': 'django.db.backends.postgresql',
+                'NAME': os.getenv('DATABASE_NAME', 'digitalpress'),
+                'USER': os.getenv('DATABASE_USER', 'dp_user'),
+                'PASSWORD': os.getenv('DATABASE_PASSWORD', 'dp_pass'),
+                'HOST': os.getenv('DATABASE_HOST', 'localhost'),
+                'PORT': os.getenv('DATABASE_PORT', '5432'),
+                'OPTIONS': {
+                    'connect_timeout': 10,
+                },
+            }
+        }
 
 # ─── CACHE / REDIS ───────────────────────────────────────────────────────────
 # Cache mémoire locale (évite les erreurs d'incompatibilité avec Redis)
@@ -284,8 +305,17 @@ REDOC_SETTINGS = {
 # ─── STATIC / MEDIA ──────────────────────────────────────────────────────────
 STATIC_URL = '/static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
+# WhiteNoise : compression + cache busting automatique en production
+STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+
+# Sur Render : les fichiers media sont sur le Disk persistant monté sur /opt/render/project/media
+# En local : dossier media/ classique dans le backend
+if IS_RENDER:
+    MEDIA_ROOT = Path('/opt/render/project/media')
+else:
+    MEDIA_ROOT = BASE_DIR / 'media'
+
 MEDIA_URL = '/media/'
-MEDIA_ROOT = BASE_DIR / 'media'
 
 # ─── INTERNATIONALISATION ────────────────────────────────────────────────────
 LANGUAGE_CODE = 'fr-fr'
