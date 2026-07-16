@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:isolate';
 import 'dart:ui';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_downloader/flutter_downloader.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_flutter/hive_flutter.dart';
@@ -17,7 +18,9 @@ class DownloadService {
   final ReceivePort _port = ReceivePort();
 
   DownloadService() {
-    _bindBackgroundIsolate();
+    if (!kIsWeb) {
+      _bindBackgroundIsolate();
+    }
   }
 
   void _bindBackgroundIsolate() {
@@ -52,11 +55,13 @@ class DownloadService {
   }
 
   Future<void> initialize() async {
+    if (kIsWeb) return;
     await FlutterDownloader.initialize(debug: true, ignoreSsl: true);
     FlutterDownloader.registerCallback(downloadCallback);
   }
 
   Future<bool> requestPermissions() async {
+    if (kIsWeb) return false;
     if (Platform.isAndroid) {
       final status = await Permission.storage.request();
       if (status.isGranted) return true;

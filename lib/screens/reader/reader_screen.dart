@@ -841,7 +841,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                               MaterialPageRoute(
                                 builder: (context) => FullScreenPdfViewer(
                                   pdfUrl: pdfUrl,
-                                  title: pdfTitle,
+                                  title: publication.title.isNotEmpty ? publication.title : pdfTitle,
                                 ),
                               ),
                             );

@@ -237,7 +237,7 @@ class _CreateArticleScreenState extends ConsumerState<CreateArticleScreen> {
         ...data,
         'cover_image': await MultipartFile.fromFile(
           selectedCoverImageFile!.path,
-          filename: selectedCoverImageFile!.path.split(Platform.pathSeparator).last,
+          filename: selectedCoverImageFile!.path.split(RegExp(r'[/\\]')).last,
         ),
         'video_url': '',
         'file_url': '',
@@ -588,7 +588,7 @@ class _CreateArticleScreenState extends ConsumerState<CreateArticleScreen> {
                               ),
                               child: Text(
                                 selectedCoverVideoFile != null
-                                    ? '✓ ${selectedCoverVideoFile!.path.split(Platform.pathSeparator).last}'
+                                    ? '✓ ${selectedCoverVideoFile!.path.split(RegExp(r'[/\\]')).last}'
                                     : 'Aucune vidéo de couverture sélectionnée',
                                 style: TextStyle(
                                   color: selectedCoverVideoFile != null

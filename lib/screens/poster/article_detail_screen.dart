@@ -237,7 +237,7 @@ class ArticleDetailScreen extends StatelessWidget {
                         MaterialPageRoute(
                           builder: (_) => FullScreenPdfViewer(
                             pdfUrl: pdfUrl,
-                            title: pdfTitle,
+                            title: (publication.title as String).isNotEmpty ? (publication.title as String) : pdfTitle,
                           ),
                         ),
                       ),

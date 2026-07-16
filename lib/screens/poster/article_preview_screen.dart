@@ -278,7 +278,7 @@ class ArticlePreviewScreen extends StatelessWidget {
                         MaterialPageRoute(
                           builder: (_) => FullScreenPdfViewer(
                             pdfUrl: pdfUrl,
-                            title: pdfTitle,
+                            title: title.isNotEmpty ? title : pdfTitle,
                           ),
                         ),
                       ),

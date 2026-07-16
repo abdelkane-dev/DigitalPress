@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -14,6 +15,7 @@ class SecurityService {
   /// Sur Android, utilise FLAG_SECURE pour rendre l'écran opaque dans le
   /// récent, les notifications et interdire les captures d'écran système.
   Future<void> setSecureMode(bool enable) async {
+    if (kIsWeb) return;
     if (!Platform.isAndroid) return;
     try {
       await platform.invokeMethod<void>('setSecureMode', {'enable': enable});
