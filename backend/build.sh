@@ -14,7 +14,11 @@ echo "📦 Collecte des fichiers statiques..."
 python manage.py collectstatic --noinput
 
 echo "🗃️  Application des migrations..."
-python manage.py migrate --run-syncdb
+# --fake-initial : si une table existe déjà (déploiement raté précédent),
+# Django marque la migration comme appliquée sans essayer de recréer la table.
+# Ensuite on applique normalement les migrations restantes.
+python manage.py migrate --fake-initial
+python manage.py migrate
 
 echo "👤 Création du compte admin (si inexistant)..."
 python manage.py shell << 'PYEOF'
