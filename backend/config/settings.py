@@ -343,6 +343,15 @@ DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', 'no-reply@digitalpress.loca
 BACKEND_URL = os.getenv('BACKEND_URL', 'http://localhost:8000')
 FRONTEND_SUCCESS_URL = os.getenv('FRONTEND_SUCCESS_URL', 'http://localhost:3000/payment/success')
 
+# Créer le dossier logs/ s'il n'existe pas (évite FileNotFoundError au démarrage)
+_logs_dir = BASE_DIR / 'logs'
+_logs_dir.mkdir(exist_ok=True)
+
+# Sur Render (et en général en production cloud), on écrit uniquement sur stdout/stderr.
+# Render capture ces flux directement. L'écriture sur fichier est désactivée
+# pour éviter les erreurs "No such file or directory" sur les filesystems éphémères.
+_use_file_logging = not IS_RENDER and not USE_SQLITE
+
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
@@ -354,7 +363,7 @@ LOGGING = {
         'console': {'class': 'logging.StreamHandler', 'formatter': 'verbose'},
         'file': {
             'class': 'logging.handlers.RotatingFileHandler',
-            'filename': BASE_DIR / 'logs' / 'django.log',
+            'filename': str(_logs_dir / 'django.log'),
             'maxBytes': 1024 * 1024 * 5,
             'backupCount': 5,
             'formatter': 'verbose',
@@ -363,14 +372,14 @@ LOGGING = {
     'root': {'handlers': ['console'], 'level': 'INFO'},
     'loggers': {
         'django': {
-            'handlers': ['console'] if USE_SQLITE else ['console', 'file'],
+            'handlers': ['console', 'file'] if _use_file_logging else ['console'],
             'level': 'WARNING',
             'propagate': False,
         },
         'apps': {
-            'handlers': ['console'] if USE_SQLITE else ['console', 'file'],
+            'handlers': ['console', 'file'] if _use_file_logging else ['console'],
             'level': 'DEBUG',
             'propagate': False,
         },
     },
-}
+}
