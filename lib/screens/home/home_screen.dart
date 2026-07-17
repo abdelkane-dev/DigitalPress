@@ -287,7 +287,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                     final userName = user?.displayName ?? 'Lecteur';
                     ImageProvider? imageProvider;
 
-                    if (imagePath != null) {
+                    if (imagePath != null && imagePath.isNotEmpty) {
                       if (imagePath.startsWith('http')) {
                         imageProvider = NetworkImage(imagePath);
                       } else {

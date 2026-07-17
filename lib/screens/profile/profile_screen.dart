@@ -147,7 +147,7 @@ class ProfileScreen extends ConsumerWidget {
 
   Widget _buildProfileHeader(User user) {
     ImageProvider? imageProvider;
-    if (user.photoUrl != null) {
+    if (user.photoUrl != null && user.photoUrl!.isNotEmpty) {
       if (user.photoUrl!.startsWith('http')) {
         imageProvider = NetworkImage(user.photoUrl!);
       } else {
