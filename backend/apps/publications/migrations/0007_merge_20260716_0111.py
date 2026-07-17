@@ -6,7 +6,7 @@ from django.db import migrations
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("publications", "0003_add_conversations"),
+        ("publications", "0003_conversations"),
         ("publications", "0006_publication_video_url"),
     ]
 
