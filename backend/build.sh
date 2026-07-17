@@ -13,11 +13,17 @@ pip install -r requirements.txt
 echo "📦 Collecte des fichiers statiques..."
 python manage.py collectstatic --noinput
 
+if [ "$RESET_DB" = "True" ]; then
+  echo "🗑️ Réinitialisation de la base de données (RESET_DB=True)..."
+  python manage.py shell << 'PYEOF'
+from django.db import connection
+with connection.cursor() as cursor:
+    cursor.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public; GRANT ALL ON SCHEMA public TO public;")
+    print("✅ Base de données réinitialisée !")
+PYEOF
+fi
+
 echo "🗃️  Application des migrations..."
-# Si un déploiement précédent a planté après avoir créé certaines tables,
-# les migrations correspondantes ne sont pas dans django_migrations mais les tables existent.
-# On fake toute l'app publications pour éviter le DuplicateTable, puis on migre normalement.
-python manage.py migrate publications --fake 2>/dev/null || true
 python manage.py migrate
 
 echo "👤 Création du compte admin (si inexistant)..."
