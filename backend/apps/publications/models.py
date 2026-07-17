@@ -77,6 +77,8 @@ class Publication(models.Model):
 
     @property
     def tags_list(self):
+        if not self.tags:
+            return []
         return [t.strip() for t in self.tags.split(',') if t.strip()]
 
 

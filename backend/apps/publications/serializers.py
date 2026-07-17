@@ -123,7 +123,7 @@ class FavoritePublicationSerializer(serializers.Serializer):
 
 class PublicationSerializer(serializers.ModelSerializer):
     publisher_name = serializers.SerializerMethodField()
-    category_name = serializers.CharField(source='category.name', read_only=True)
+    category_name = serializers.SerializerMethodField()
     is_subscribed = serializers.SerializerMethodField()
     file_url = serializers.SerializerMethodField()
     content = serializers.SerializerMethodField()
@@ -141,6 +141,9 @@ class PublicationSerializer(serializers.ModelSerializer):
             'created_at', 'updated_at',
         ]
         read_only_fields = ['publisher', 'views_count', 'downloads_count', 'created_at', 'updated_at']
+
+    def get_category_name(self, obj):
+        return obj.category.name if obj.category else ""
 
     def get_publisher_name(self, obj):
         if obj.publisher.role == 'publisher' and hasattr(obj.publisher, 'publisher_profile'):
