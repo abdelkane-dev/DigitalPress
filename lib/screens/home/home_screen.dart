@@ -12,6 +12,7 @@ import '../profile/profile_screen.dart';
 import 'package:go_router/go_router.dart';
 import '../../model/publication.dart';
 import '../../core/services/publication_service.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -593,12 +594,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                     ),
                     child: Stack(
                       children: [
-                        Image.network(
-                          imageUrl,
+                        CachedNetworkImage(
+                          imageUrl: imageUrl,
                           height: double.infinity,
                           width: double.infinity,
                           fit: BoxFit.cover,
-                          errorBuilder: (context, error, stackTrace) {
+                          placeholder: (context, url) => Container(
+                            color: Colors.grey.shade200,
+                            child: const Center(
+                              child: CircularProgressIndicator(),
+                            ),
+                          ),
+                          errorWidget: (context, url, error) {
                             return Container(
                               color: Colors.grey.shade200,
                               child: Icon(
@@ -771,12 +778,20 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           children: [
             Stack(
               children: [
-                Image.network(
-                  imageUrl,
+                 CachedNetworkImage(
+                  imageUrl: imageUrl,
                   width: 100,
                   height: 120,
                   fit: BoxFit.cover,
-                  errorBuilder: (context, error, stackTrace) {
+                  placeholder: (context, url) => Container(
+                    width: 100,
+                    height: 120,
+                    color: Colors.grey.shade200,
+                    child: const Center(
+                      child: CircularProgressIndicator(),
+                    ),
+                  ),
+                  errorWidget: (context, url, error) {
                     return Container(
                       width: 100,
                       height: 120,

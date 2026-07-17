@@ -1,5 +1,7 @@
 import 'dart:io';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:dio/dio.dart';
+import 'package:path_provider/path_provider.dart';
 import '../core/services/security_service.dart';
 import '../core/services/download_service.dart';
 import '../core/storage/storage_service.dart';
@@ -97,10 +99,32 @@ class ReaderViewModel extends StateNotifier<ReaderState> {
             isLoading: false, errorMessage: 'Identifiant de publication invalide.');
         return;
       }
-      final url = await _publicationService.getProtectedFileUrl(id);
-      state = state.copyWith(
-          isLoading: false, fileUrl: url, accessDenied: false);
+      
+      String? url;
+      try {
+        url = await _publicationService.getProtectedFileUrl(id);
+      } catch (e) {
+        // En cas de panne de réseau, si on a un fichier local, on l'affiche directement.
+        if (state.localFilePath != null) {
+          state = state.copyWith(isLoading: false);
+          return;
+        }
+        rethrow;
+      }
+
+      state = state.copyWith(fileUrl: url, accessDenied: false);
+
+      // Si on a l'URL mais pas encore le fichier en local, on le télécharge silencieusement en tâche de fond.
+      if (state.localFilePath == null && url.isNotEmpty) {
+        _cacheFileInBackground(id, url);
+      } else {
+        state = state.copyWith(isLoading: false);
+      }
     } on Failure catch (e) {
+      if (state.localFilePath != null) {
+        state = state.copyWith(isLoading: false);
+        return;
+      }
       if (e.message.contains('Abonnement') ||
           e.message.contains('achat') ||
           e.message.contains('requis') ||
@@ -110,7 +134,40 @@ class ReaderViewModel extends StateNotifier<ReaderState> {
         state = state.copyWith(isLoading: false, errorMessage: e.message);
       }
     } catch (e) {
+      if (state.localFilePath != null) {
+        state = state.copyWith(isLoading: false);
+        return;
+      }
       state = state.copyWith(isLoading: false, errorMessage: e.toString());
+    }
+  }
+
+  Future<void> _cacheFileInBackground(int id, String url) async {
+    try {
+      final appDir = await getApplicationDocumentsDirectory();
+      final localPath = '${appDir.path}/cached_journal_$id.pdf';
+      final file = File(localPath);
+
+      if (await file.exists()) {
+        await _downloadService.saveDownloadLocation(id.toString(), localPath);
+        if (mounted) {
+          state = state.copyWith(localFilePath: localPath, isLoading: false);
+        }
+        return;
+      }
+
+      final dio = Dio();
+      await dio.download(url, localPath);
+
+      await _downloadService.saveDownloadLocation(id.toString(), localPath);
+      if (mounted) {
+        state = state.copyWith(localFilePath: localPath, isLoading: false);
+      }
+    } catch (e) {
+      // Échec silencieux du téléchargement de cache en tâche de fond, pour ne pas bloquer.
+      if (mounted) {
+        state = state.copyWith(isLoading: false);
+      }
     }
   }
 

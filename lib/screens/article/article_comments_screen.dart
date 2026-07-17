@@ -8,6 +8,7 @@ import '../../model/conversation_message.dart';
 import '../../model/publication.dart';
 import '../../widgets/subscribe_or_buy_sheet.dart';
 import '../../widgets/add_to_favorites_sheet.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 
 /// Page complète d'un article : informations, description, bouton de
 /// lecture, et conversation en bas de page — façon fil de commentaires
@@ -185,12 +186,20 @@ class _ArticleCommentsScreenState extends ConsumerState<ArticleCommentsScreen> {
         if (publication.coverImage.isNotEmpty)
           ClipRRect(
             borderRadius: BorderRadius.circular(18),
-            child: Image.network(
-              publication.coverImage,
+            child: CachedNetworkImage(
+              imageUrl: publication.coverImage,
               height: 200,
               width: double.infinity,
               fit: BoxFit.cover,
-              errorBuilder: (context, error, stackTrace) => const SizedBox.shrink(),
+              placeholder: (context, url) => Container(
+                height: 200,
+                width: double.infinity,
+                color: Colors.grey.shade100,
+                child: const Center(
+                  child: CircularProgressIndicator(),
+                ),
+              ),
+              errorWidget: (context, url, error) => const SizedBox.shrink(),
             ),
           ),
         const SizedBox(height: 16),

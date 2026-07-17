@@ -1,9 +1,11 @@
+import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:digital_press/core/api/api_client.dart';
 import 'package:digital_press/config/api_constants.dart';
 import 'package:digital_press/model/publication.dart';
 import 'package:digital_press/model/conversation_message.dart';
+import 'package:digital_press/core/storage/storage_service.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Service Publication (Riverpod)
@@ -12,12 +14,14 @@ import 'package:digital_press/model/conversation_message.dart';
 
 final publicationServiceProvider = Provider<PublicationService>((ref) {
   final apiClient = ref.watch(apiClientProvider);
-  return PublicationService(apiClient);
+  final storageService = ref.watch(storageServiceProvider);
+  return PublicationService(apiClient, storageService);
 });
 
 class PublicationService {
   final ApiClient _api;
-  PublicationService(this._api);
+  final StorageService _storage;
+  PublicationService(this._api, this._storage);
 
   Future<List<Publication>> getPublications({
     int page = 1,
@@ -35,17 +39,41 @@ class PublicationService {
       if (isFree != null) 'is_free': isFree,
       if (publisherId != null) 'publisher_id': publisherId,
     };
-    final res =
-        await _api.get(ApiConstants.publications, queryParameters: params);
-    final results = res.data['results'] as List? ?? res.data as List? ?? [];
-    return results
-        .map((j) => Publication.fromJson(j as Map<String, dynamic>))
-        .toList();
+    final cacheKey = 'pubs_list_${page}_${search ?? ""}_${category ?? ""}_${type ?? ""}_${isFree ?? ""}_${publisherId ?? ""}';
+    try {
+      final res =
+          await _api.get(ApiConstants.publications, queryParameters: params);
+      final results = res.data['results'] as List? ?? res.data as List? ?? [];
+      await _storage.set(cacheKey, jsonEncode(results));
+      return results
+          .map((j) => Publication.fromJson(j as Map<String, dynamic>))
+          .toList();
+    } catch (e) {
+      final cachedData = _storage.get(cacheKey);
+      if (cachedData != null) {
+        final List results = jsonDecode(cachedData as String) as List;
+        return results
+            .map((j) => Publication.fromJson(j as Map<String, dynamic>))
+            .toList();
+      }
+      rethrow;
+    }
   }
 
   Future<Publication> getPublication(int id) async {
-    final res = await _api.get('${ApiConstants.publications}$id/');
-    return Publication.fromJson(res.data as Map<String, dynamic>);
+    final cacheKey = 'pub_detail_$id';
+    try {
+      final res = await _api.get('${ApiConstants.publications}$id/');
+      await _storage.set(cacheKey, jsonEncode(res.data));
+      return Publication.fromJson(res.data as Map<String, dynamic>);
+    } catch (e) {
+      final cachedData = _storage.get(cacheKey);
+      if (cachedData != null) {
+        return Publication.fromJson(
+            jsonDecode(cachedData as String) as Map<String, dynamic>);
+      }
+      rethrow;
+    }
   }
 
   /// Récupère l'URL réelle et complète du fichier d'une publication.
@@ -61,11 +89,24 @@ class PublicationService {
   }
 
   Future<List<Publication>> getMyPublications() async {
-    final res = await _api.get(ApiConstants.myPublications);
-    final results = res.data['results'] as List? ?? res.data as List? ?? [];
-    return results
-        .map((j) => Publication.fromJson(j as Map<String, dynamic>))
-        .toList();
+    const cacheKey = 'my_publications';
+    try {
+      final res = await _api.get(ApiConstants.myPublications);
+      final results = res.data['results'] as List? ?? res.data as List? ?? [];
+      await _storage.set(cacheKey, jsonEncode(results));
+      return results
+          .map((j) => Publication.fromJson(j as Map<String, dynamic>))
+          .toList();
+    } catch (e) {
+      final cachedData = _storage.get(cacheKey);
+      if (cachedData != null) {
+        final List results = jsonDecode(cachedData as String) as List;
+        return results
+            .map((j) => Publication.fromJson(j as Map<String, dynamic>))
+            .toList();
+      }
+      rethrow;
+    }
   }
 
   Future<Publication> createPublication(dynamic data) async {
@@ -95,9 +136,21 @@ class PublicationService {
   }
 
   Future<List<Map<String, dynamic>>> getCategories() async {
-    final res = await _api.get('${ApiConstants.publications}categories/');
-    final results = res.data['results'] as List? ?? res.data as List? ?? [];
-    return results.cast<Map<String, dynamic>>();
+    const cacheKey = 'categories';
+    try {
+      final res = await _api.get('${ApiConstants.publications}categories/');
+      final results = res.data['results'] as List? ?? res.data as List? ?? [];
+      final casted = results.cast<Map<String, dynamic>>();
+      await _storage.set(cacheKey, jsonEncode(casted));
+      return casted;
+    } catch (e) {
+      final cachedData = _storage.get(cacheKey);
+      if (cachedData != null) {
+        final List decoded = jsonDecode(cachedData as String) as List;
+        return decoded.cast<Map<String, dynamic>>();
+      }
+      rethrow;
+    }
   }
 
   Future<Map<String, dynamic>> createCategory(String name) async {
@@ -113,11 +166,24 @@ class PublicationService {
   /// chronologiquement.
   Future<List<ConversationMessage>> getConversationFeed(
       int publicationId) async {
-    final res = await _api.get(ApiConstants.conversationFeed(publicationId));
-    final results = res.data as List? ?? [];
-    return results
-        .map((j) => ConversationMessage.fromJson(j as Map<String, dynamic>))
-        .toList();
+    final cacheKey = 'conversation_feed_$publicationId';
+    try {
+      final res = await _api.get(ApiConstants.conversationFeed(publicationId));
+      final results = res.data as List? ?? [];
+      await _storage.set(cacheKey, jsonEncode(results));
+      return results
+          .map((j) => ConversationMessage.fromJson(j as Map<String, dynamic>))
+          .toList();
+    } catch (e) {
+      final cachedData = _storage.get(cacheKey);
+      if (cachedData != null) {
+        final List results = jsonDecode(cachedData as String) as List;
+        return results
+            .map((j) => ConversationMessage.fromJson(j as Map<String, dynamic>))
+            .toList();
+      }
+      rethrow;
+    }
   }
 
   /// Poste une réponse libre. [parentId] est l'id complet du message auquel
@@ -154,10 +220,22 @@ class PublicationService {
   /// Liste des commentaires (avis) d'un article, du plus récent au plus
   /// ancien — c'est cette liste qui forme la "conversation" de l'article.
   Future<List<Map<String, dynamic>>> getReviews(int publicationId) async {
-    final res =
-        await _api.get('${ApiConstants.publications}$publicationId/reviews/');
-    final results = res.data as List? ?? res.data['results'] as List? ?? [];
-    return results.cast<Map<String, dynamic>>();
+    final cacheKey = 'reviews_$publicationId';
+    try {
+      final res =
+          await _api.get('${ApiConstants.publications}$publicationId/reviews/');
+      final results = res.data as List? ?? res.data['results'] as List? ?? [];
+      final casted = results.cast<Map<String, dynamic>>();
+      await _storage.set(cacheKey, jsonEncode(casted));
+      return casted;
+    } catch (e) {
+      final cachedData = _storage.get(cacheKey);
+      if (cachedData != null) {
+        final List decoded = jsonDecode(cachedData as String) as List;
+        return decoded.cast<Map<String, dynamic>>();
+      }
+      rethrow;
+    }
   }
 
   /// Poste un commentaire sur un article. Si l'utilisateur a déjà commenté
@@ -176,15 +254,37 @@ class PublicationService {
   }
 
   Future<List<Map<String, dynamic>>> getPublicPublishers() async {
-    final res = await _api.get(ApiConstants.publicPublishers);
-    final results = res.data as List? ?? [];
-    return results.cast<Map<String, dynamic>>();
+    const cacheKey = 'public_publishers';
+    try {
+      final res = await _api.get(ApiConstants.publicPublishers);
+      final results = res.data as List? ?? [];
+      final casted = results.cast<Map<String, dynamic>>();
+      await _storage.set(cacheKey, jsonEncode(casted));
+      return casted;
+    } catch (e) {
+      final cachedData = _storage.get(cacheKey);
+      if (cachedData != null) {
+        final List decoded = jsonDecode(cachedData as String) as List;
+        return decoded.cast<Map<String, dynamic>>();
+      }
+      rethrow;
+    }
   }
 
   Future<Map<String, dynamic>> getPublicPublisherProfile(
       int publisherId) async {
-    final res = await _api.get(ApiConstants.publicPublisherDetail(publisherId));
-    return res.data as Map<String, dynamic>;
+    final cacheKey = 'public_publisher_profile_$publisherId';
+    try {
+      final res = await _api.get(ApiConstants.publicPublisherDetail(publisherId));
+      await _storage.set(cacheKey, jsonEncode(res.data));
+      return res.data as Map<String, dynamic>;
+    } catch (e) {
+      final cachedData = _storage.get(cacheKey);
+      if (cachedData != null) {
+        return jsonDecode(cachedData as String) as Map<String, dynamic>;
+      }
+      rethrow;
+    }
   }
 }
 

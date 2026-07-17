@@ -4,6 +4,7 @@ import 'package:syncfusion_flutter_pdfviewer/pdfviewer.dart';
 import '../../config/api_config.dart';
 import '../../widgets/short_video_player.dart';
 import '../reader/reader_screen.dart' show FullScreenPdfViewer;
+import 'package:cached_network_image/cached_network_image.dart';
 
 /// Écran de détail d'un article (espace éditeur).
 /// Rend images, vidéos et PDFs exactement comme dans le ReaderScreen.
@@ -34,12 +35,20 @@ class ArticleDetailScreen extends StatelessWidget {
           if ((publication.coverImage as String).isNotEmpty)
             ClipRRect(
               borderRadius: BorderRadius.circular(18),
-              child: Image.network(
-                _sanitize(publication.coverImage as String),
+              child: CachedNetworkImage(
+                imageUrl: _sanitize(publication.coverImage as String),
                 height: 220,
                 width: double.infinity,
                 fit: BoxFit.cover,
-                errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                placeholder: (_, __) => Container(
+                  height: 220,
+                  width: double.infinity,
+                  color: Colors.grey.shade200,
+                  child: const Center(
+                    child: CircularProgressIndicator(),
+                  ),
+                ),
+                errorWidget: (_, __, ___) => const SizedBox.shrink(),
               ),
             ),
           const SizedBox(height: 16),
@@ -152,10 +161,19 @@ class ArticleDetailScreen extends StatelessWidget {
         child: ClipRRect(
           borderRadius: BorderRadius.circular(12),
           child: imageUrl.startsWith('http')
-              ? Image.network(imageUrl,
+              ? CachedNetworkImage(
+                  imageUrl: imageUrl,
                   width: double.infinity,
                   fit: BoxFit.fitWidth,
-                  errorBuilder: (_, __, ___) =>
+                  placeholder: (_, __) => Container(
+                    height: 150,
+                    width: double.infinity,
+                    color: Colors.grey.shade200,
+                    child: const Center(
+                      child: CircularProgressIndicator(),
+                    ),
+                  ),
+                  errorWidget: (_, __, ___) =>
                       _mediaMissing('Image non disponible'))
               : Image.file(File(imageUrl),
                   width: double.infinity,

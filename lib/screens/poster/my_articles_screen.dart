@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/services/publication_service.dart';
 import 'edit_article_screen.dart';
 import 'article_detail_screen.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 
 class MyArticlesScreen extends ConsumerWidget {
   const MyArticlesScreen({super.key});
@@ -89,12 +90,20 @@ class MyArticlesScreen extends ConsumerWidget {
                         borderRadius: const BorderRadius.vertical(
                           top: Radius.circular(18),
                         ),
-                        child: Image.network(
-                          article.coverImage,
+                        child: CachedNetworkImage(
+                          imageUrl: article.coverImage,
                           height: 170,
                           width: double.infinity,
                           fit: BoxFit.cover,
-                          errorBuilder: (context, error, stackTrace) {
+                          placeholder: (context, url) => Container(
+                            height: 170,
+                            width: double.infinity,
+                            color: Colors.grey.shade100,
+                            child: const Center(
+                              child: CircularProgressIndicator(),
+                            ),
+                          ),
+                          errorWidget: (context, url, error) {
                             return Container(
                               height: 120,
                               width: double.infinity,
