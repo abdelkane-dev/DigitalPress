@@ -13,15 +13,13 @@ pip install -r requirements.txt
 echo "📦 Collecte des fichiers statiques..."
 python manage.py collectstatic --noinput
 
-if [ "$RESET_DB" = "True" ]; then
-  echo "🗑️ Réinitialisation de la base de données (RESET_DB=True)..."
-  python manage.py shell << 'PYEOF'
+echo "🗑️ Réinitialisation de la base de données..."
+python manage.py shell << 'PYEOF'
 from django.db import connection
 with connection.cursor() as cursor:
     cursor.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public; GRANT ALL ON SCHEMA public TO public;")
     print("✅ Base de données réinitialisée !")
 PYEOF
-fi
 
 echo "🗃️  Application des migrations..."
 python manage.py migrate
