@@ -584,17 +584,17 @@ class MediaUploadView(APIView):
         if not file_obj:
             return Response({'error': 'Aucun fichier fourni.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Enregistrer dans media/publications/uploads/
         from django.core.files.storage import default_storage
         from django.conf import settings
-        
+
         file_name = default_storage.save(f"publications/uploads/{file_obj.name}", file_obj)
         file_url = default_storage.url(file_name)
 
-        if request is not None:
-            url = request.build_absolute_uri(file_url)
+        # Si l'URL est déjà absolue (ex: Supabase → https://xxx.supabase.co/...)
+        # on la retourne telle quelle sans préfixer avec le domaine Render.
+        if file_url.startswith(('http://', 'https://')):
+            url = file_url
         else:
-            backend_url = getattr(settings, 'BACKEND_URL', 'http://localhost:8000')
-            url = f"{backend_url.rstrip('/')}{file_url}"
+            url = request.build_absolute_uri(file_url)
 
         return Response({'url': url}, status=status.HTTP_201_CREATED)
