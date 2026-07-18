@@ -4,12 +4,15 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../config/api_constants.dart';
 import '../../model/user.dart';
 import '../api/api_client.dart';
+import 'dart:convert';
 import '../storage/secure_storage_service.dart';
+import '../storage/storage_service.dart';
 
 final authServiceProvider = Provider<AuthService>((ref) {
   final apiClient = ref.watch(apiClientProvider);
   final secureStorage = ref.watch(secureStorageServiceProvider);
-  return AuthService(apiClient, secureStorage);
+  final storage = ref.watch(storageServiceProvider);
+  return AuthService(apiClient, secureStorage, storage);
 });
 
 final authStateProvider = StreamProvider<User?>((ref) {
@@ -20,10 +23,11 @@ final authStateProvider = StreamProvider<User?>((ref) {
 class AuthService {
   final ApiClient _apiClient;
   final SecureStorageService _secureStorage;
+  final StorageService _storage;
   final _authStateController = StreamController<User?>.broadcast();
   User? _currentUser;
 
-  AuthService(this._apiClient, this._secureStorage) {
+  AuthService(this._apiClient, this._secureStorage, this._storage) {
     _checkInitialState();
   }
 
@@ -39,16 +43,43 @@ class AuthService {
     try {
       _currentUser = await _fetchProfile();
       _authStateController.add(_currentUser);
-    } catch (_) {
-      await _secureStorage.deleteAll();
-      _currentUser = null;
-      _authStateController.add(null);
+    } catch (e) {
+      bool shouldLogout = false;
+      if (e is DioException) {
+        final status = e.response?.statusCode;
+        if (status == 401 || status == 403) {
+          shouldLogout = true;
+        }
+      }
+
+      if (shouldLogout) {
+        await _secureStorage.deleteAll();
+        await _storage.delete('user_profile');
+        _currentUser = null;
+        _authStateController.add(null);
+      } else {
+        // En cas d'erreur réseau / serveur temporaire, on charge le cache
+        final cached = _storage.get('user_profile');
+        if (cached != null) {
+          try {
+            _currentUser = User.fromApiJson(jsonDecode(cached as String) as Map<String, dynamic>);
+            _authStateController.add(_currentUser);
+          } catch (_) {
+            _authStateController.add(null);
+          }
+        } else {
+          // On n'efface pas les tokens, l'utilisateur reste "connecté" au prochain lancement.
+          _authStateController.add(null);
+        }
+      }
     }
   }
 
   Future<User> _fetchProfile() async {
     final response = await _apiClient.get(ApiConstants.profile);
-    return User.fromApiJson(response.data as Map<String, dynamic>);
+    final user = User.fromApiJson(response.data as Map<String, dynamic>);
+    await _storage.set('user_profile', jsonEncode(response.data));
+    return user;
   }
 
   Future<void> _persistTokens(String access, String? refresh) async {
@@ -79,6 +110,7 @@ class AuthService {
 
     if (data['user'] != null) {
       _currentUser = User.fromApiJson(data['user'] as Map<String, dynamic>);
+      await _storage.set('user_profile', jsonEncode(data['user']));
     } else {
       _currentUser = await _fetchProfile();
     }
@@ -163,6 +195,7 @@ class AuthService {
       data: dataToSend,
     );
     _currentUser = User.fromApiJson(response.data as Map<String, dynamic>);
+    await _storage.set('user_profile', jsonEncode(response.data));
     _authStateController.add(_currentUser);
   }
 
@@ -233,6 +266,7 @@ class AuthService {
 
   Future<void> signOut() async {
     await _secureStorage.deleteAll();
+    await _storage.delete('user_profile');
     _currentUser = null;
     _authStateController.add(null);
   }

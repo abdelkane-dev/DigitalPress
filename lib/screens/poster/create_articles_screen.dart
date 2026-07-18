@@ -54,10 +54,35 @@ class _CreateArticleScreenState extends ConsumerState<CreateArticleScreen> {
   Future<void> _pickCoverImage() async {
     final result = await FilePicker.platform.pickFiles(type: FileType.image);
     if (result != null && result.files.single.path != null) {
-      setState(() {
-        selectedCoverImageFile = File(result.files.single.path!);
-        coverUrlController.text = result.files.single.name;
-      });
+      final file = result.files.single;
+      setState(() => _isUploading = true);
+      try {
+        final url = await ref
+            .read(publicationServiceProvider)
+            .uploadMedia(file.path!, file.name);
+        if (mounted) {
+          setState(() {
+            selectedCoverImageFile = File(file.path!);
+            coverUrlController.text = url;
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Image de couverture uploadée ✓'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+                content: Text('Erreur upload image: $e'),
+                backgroundColor: Colors.red),
+          );
+        }
+      } finally {
+        if (mounted) setState(() => _isUploading = false);
+      }
     }
   }
 
@@ -230,27 +255,12 @@ class _CreateArticleScreenState extends ConsumerState<CreateArticleScreen> {
       'tags': tagsController.text.trim(),
     };
 
-    dynamic payload;
-    // Couverture : image locale ou URL
-    if (selectedCoverImageFile != null && _coverType == 'image') {
-      final formDataMap = <String, dynamic>{
-        ...data,
-        'cover_image': await MultipartFile.fromFile(
-          selectedCoverImageFile!.path,
-          filename: selectedCoverImageFile!.path.split(RegExp(r'[/\\]')).last,
-        ),
-        'video_url': '',
-        'file_url': '',
-      };
-      payload = FormData.fromMap(formDataMap);
-    } else {
-      payload = {
-        ...data,
-        'cover_image': _coverType == 'image' ? coverUrlController.text.trim() : '',
-        'video_url': _coverType == 'video' ? _coverVideoUrl : '',
-        'file_url': '',
-      };
-    }
+    final payload = <String, dynamic>{
+      ...data,
+      'cover_image': _coverType == 'image' ? coverUrlController.text.trim() : '',
+      'video_url': _coverType == 'video' ? _coverVideoUrl : '',
+      'file_url': '',
+    };
 
     try {
       await ref

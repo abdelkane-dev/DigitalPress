@@ -76,10 +76,35 @@ class _EditArticleScreenState extends ConsumerState<EditArticleScreen> {
   Future<void> _pickCoverImage() async {
     final result = await FilePicker.platform.pickFiles(type: FileType.image);
     if (result != null && result.files.single.path != null) {
-      setState(() {
-        selectedCoverImageFile = File(result.files.single.path!);
-        coverUrlController.text = result.files.single.name;
-      });
+      final file = result.files.single;
+      setState(() => _isUploading = true);
+      try {
+        final url = await ref
+            .read(publicationServiceProvider)
+            .uploadMedia(file.path!, file.name);
+        if (mounted) {
+          setState(() {
+            selectedCoverImageFile = File(file.path!);
+            coverUrlController.text = url;
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Image de couverture uploadée ✓'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+                content: Text('Erreur upload image: $e'),
+                backgroundColor: Colors.red),
+          );
+        }
+      } finally {
+        if (mounted) setState(() => _isUploading = false);
+      }
     }
   }
 

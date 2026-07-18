@@ -13,6 +13,7 @@ import 'package:syncfusion_flutter_pdfviewer/pdfviewer.dart';
 import '../../core/services/preview_service.dart';
 import '../../core/services/security_service.dart';
 import '../../widgets/short_video_player.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 String sanitizeMediaUrl(String url) {
   if (url.isEmpty) return url;
@@ -76,9 +77,23 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
-            IconButton(
-              icon: const Icon(Icons.close_rounded, color: Colors.white, size: 30),
-              onPressed: () => Navigator.pop(context),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.open_in_browser_rounded, color: Colors.white, size: 30),
+                  onPressed: () async {
+                    final uri = Uri.parse(videoUrl);
+                    if (await canLaunchUrl(uri)) {
+                      await launchUrl(uri, mode: LaunchMode.externalApplication);
+                    }
+                  },
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close_rounded, color: Colors.white, size: 30),
+                  onPressed: () => Navigator.pop(context),
+                ),
+              ],
             ),
             ShortVideoPlayer(videoUrl: videoUrl, title: title),
           ],
@@ -770,13 +785,30 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  '🎬 $videoTitle',
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 15,
-                    color: themeHeaderColor,
-                  ),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Expanded(
+                      child: Text(
+                        '🎬 $videoTitle',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 15,
+                          color: themeHeaderColor,
+                        ),
+                      ),
+                    ),
+                    TextButton.icon(
+                      icon: const Icon(Icons.open_in_browser_rounded, size: 18),
+                      label: const Text('Ouvrir', style: TextStyle(fontSize: 12)),
+                      onPressed: () async {
+                        final uri = Uri.parse(videoUrl);
+                        if (await canLaunchUrl(uri)) {
+                          await launchUrl(uri, mode: LaunchMode.externalApplication);
+                        }
+                      },
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 6),
                 ClipRRect(
@@ -806,60 +838,91 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
           final pdfUrl = sanitizeMediaUrl(simpleLinkMatch.group(2) ?? '');
           widgets.add(Padding(
             padding: const EdgeInsets.symmetric(vertical: 12),
-            child: Container(
-              height: 550, // Hauteur augmentée pour une meilleure lisibilité
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(
-                  color: isNightMode ? Colors.white24 : Colors.grey.shade300,
-                ),
-              ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(16),
-                child: Stack(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    SfPdfViewer.network(
-                      pdfUrl,
-                      scrollDirection: PdfScrollDirection.horizontal,
-                      pageLayoutMode: PdfPageLayoutMode.single,
-                      enableDoubleTapZooming: true,
-                      onDocumentLoadFailed: (details) {
-                        debugPrint('Failed to load inline PDF: ${details.description}');
-                      },
-                    ),
-                    Positioned(
-                      top: 12,
-                      right: 12,
-                      child: Material(
-                        color: Colors.black.withValues(alpha: 0.6),
-                        borderRadius: BorderRadius.circular(20),
-                        child: InkWell(
-                          borderRadius: BorderRadius.circular(20),
-                          onTap: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (context) => FullScreenPdfViewer(
-                                  pdfUrl: pdfUrl,
-                                  title: publication.title.isNotEmpty ? publication.title : pdfTitle,
-                                ),
-                              ),
-                            );
-                          },
-                          child: const Padding(
-                            padding: EdgeInsets.all(8),
-                            child: Icon(
-                              Icons.fullscreen_rounded,
-                              color: Colors.white,
-                              size: 28,
-                            ),
-                          ),
+                    Expanded(
+                      child: Text(
+                        '📄 $pdfTitle',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 15,
+                          color: themeHeaderColor,
                         ),
                       ),
                     ),
+                    TextButton.icon(
+                      icon: const Icon(Icons.open_in_browser_rounded, size: 18),
+                      label: const Text('Ouvrir', style: TextStyle(fontSize: 12)),
+                      onPressed: () async {
+                        final uri = Uri.parse(pdfUrl);
+                        if (await canLaunchUrl(uri)) {
+                          await launchUrl(uri, mode: LaunchMode.externalApplication);
+                        }
+                      },
+                    ),
                   ],
                 ),
-              ),
+                const SizedBox(height: 6),
+                Container(
+                  height: 550, // Hauteur augmentée pour une meilleure lisibilité
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                      color: isNightMode ? Colors.white24 : Colors.grey.shade300,
+                    ),
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(16),
+                    child: Stack(
+                      children: [
+                        SfPdfViewer.network(
+                          pdfUrl,
+                          scrollDirection: PdfScrollDirection.horizontal,
+                          pageLayoutMode: PdfPageLayoutMode.single,
+                          enableDoubleTapZooming: true,
+                          onDocumentLoadFailed: (details) {
+                            debugPrint('Failed to load inline PDF: ${details.description}');
+                          },
+                        ),
+                        Positioned(
+                          top: 12,
+                          right: 12,
+                          child: Material(
+                            color: Colors.black.withValues(alpha: 0.6),
+                            borderRadius: BorderRadius.circular(20),
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(20),
+                              onTap: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) => FullScreenPdfViewer(
+                                      pdfUrl: pdfUrl,
+                                      title: publication.title.isNotEmpty ? publication.title : pdfTitle,
+                                    ),
+                                  ),
+                                );
+                              },
+                              child: const Padding(
+                                padding: EdgeInsets.all(8),
+                                child: Icon(
+                                  Icons.fullscreen_rounded,
+                                  color: Colors.white,
+                                  size: 28,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
             ),
           ));
           continue;
