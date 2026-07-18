@@ -3,7 +3,6 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:file_picker/file_picker.dart';
 import 'dart:io';
-import 'package:dio/dio.dart';
 import '../../core/services/publication_service.dart';
 
 class CreateArticleScreen extends ConsumerStatefulWidget {
