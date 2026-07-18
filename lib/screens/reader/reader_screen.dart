@@ -309,7 +309,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
           else
             pubDetailAsync.when(
               data: (pub) {
-                if (pub.pubType == 'article') {
+                if (pub.pubType == 'article' || pub.fileUrl.isEmpty) {
                   if (pub.prix > 0 && !pub.isSubscribed) {
                     return Center(
                       child: Padding(
@@ -401,7 +401,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                             }
                           },
                         )
-                      : (state.fileUrl == null
+                      : (state.fileUrl == null || state.fileUrl!.isEmpty
                           ? const SizedBox.shrink()
                           : SfPdfViewer.network(
                               sanitizeMediaUrl(state.fileUrl!),
