@@ -61,8 +61,13 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
 
   @override
   void dispose() {
-    // Désactiver FLAG_SECURE quand on quitte le lecteur
-    ref.read(securityServiceProvider).setSecureMode(false);
+    // Désactiver FLAG_SECURE quand on quitte le lecteur.
+    // On récupère la référence AVANT super.dispose() car après, ref est invalide.
+    try {
+      ref.read(securityServiceProvider).setSecureMode(false);
+    } catch (_) {
+      // Peut arriver si le widget est déjà détaché du tree (navigation rapide).
+    }
     _pdfViewerController.dispose();
     super.dispose();
   }
