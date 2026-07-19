@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "959894274903",
+    "project_id": "digitalpress-ec022",
+    "storage_bucket": "digitalpress-ec022.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:959894274903:android:33d33831976b1a6b143412",
+        "android_client_info": {
+          "package_name": "com.example.digitalpress"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC_13kxVaywrPjlyGFQXZl5h0vuOBofaUc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

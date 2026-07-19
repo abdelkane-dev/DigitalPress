@@ -1,0 +1,52 @@
+# ============================================================
+# Digital Press Backend — requirements.txt
+# Python 3.10+ | Django 4.2 LTS
+# Fichier unique — couvre dev local, Docker et production
+# ============================================================
+
+# ─── Core Django ─────────────────────────────────────────────
+Django==4.2.16
+djangorestframework==3.15.2
+django-cors-headers==4.3.1
+django-filter==24.1
+
+# ─── Auth & JWT ──────────────────────────────────────────────
+djangorestframework-simplejwt==5.3.1
+
+# ─── Database ────────────────────────────────────────────────
+# psycopg2-binary: préféré en dev/Docker (pas de compilation C)
+# psycopg2:        préféré en production (build from source, plus stable)
+psycopg2-binary>=2.9.10
+
+# ─── Cache & Queue ───────────────────────────────────────────
+redis==5.0.8
+django-redis==5.4.0
+celery==5.3.6
+django-celery-beat==2.6.0
+django-celery-results==2.5.1
+
+# ─── API Documentation ───────────────────────────────────────
+drf-yasg==1.21.8
+setuptools>=75.0.0
+
+# ─── HTTP / Paiements ────────────────────────────────────────
+requests==2.32.3
+urllib3==2.2.2
+
+# ─── Configuration ───────────────────────────────────────────
+python-dotenv==1.0.1
+
+# ─── Utils ───────────────────────────────────────────────────
+Pillow==10.4.0
+
+# ─── Production ──────────────────────────────────────────────
+gunicorn==22.0.0
+whitenoise==6.7.0
+
+# ─── Dev / Test ──────────────────────────────────────────────
+pytest-django==4.8.0
+factory-boy==3.3.1
+
+# ─── Render / Cloud deployment ───────────────────────────────
+# Permet de parser DATABASE_URL injecté automatiquement par Render PostgreSQL
+dj-database-url==2.2.0
