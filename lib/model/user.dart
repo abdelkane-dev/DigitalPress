@@ -21,6 +21,10 @@ class User {
   final String? website;
   final String? bio;
 
+  // Informations de facturation (point 7)
+  final String? billingAddress;
+  final String? billingPhone;
+
   User({
     required this.id,
     required this.email,
@@ -39,6 +43,8 @@ class User {
     this.address,
     this.website,
     this.bio,
+    this.billingAddress,
+    this.billingPhone,
   });
 
   bool get isAdmin => role == 'admin';
@@ -70,6 +76,8 @@ class User {
       address: pubProfile?['address'] as String?,
       website: pubProfile?['website'] as String?,
       bio: pubProfile?['bio'] as String?,
+      billingAddress: json['billing_address'] as String?,
+      billingPhone: json['billing_phone'] as String?,
     );
   }
 

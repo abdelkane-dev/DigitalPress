@@ -39,6 +39,49 @@ String buildHealthStatusMessage({
   return 'Serveur disponible';
 }
 
+/// Intercepteur de retry avec backoff exponentiel — conçu pour les cold-starts de Render
+/// (le serveur peut mettre jusqu'à 50 s à répondre après un redémarrage automatique).
+class _RetryInterceptor extends Interceptor {
+  final Dio dio;
+  final int maxRetries;
+  final Duration initialDelay;
+
+  _RetryInterceptor({
+    required this.dio,
+    this.maxRetries = 3,
+    this.initialDelay = const Duration(seconds: 2),
+  });
+
+  @override
+  void onError(DioException err, ErrorInterceptorHandler handler) async {
+    // On ne retente que les erreurs réseau (timeout, connexion refusée), pas les 4xx/5xx
+    final isNetworkError = err.type == DioExceptionType.connectionTimeout ||
+        err.type == DioExceptionType.receiveTimeout ||
+        err.type == DioExceptionType.connectionError ||
+        err.type == DioExceptionType.sendTimeout;
+
+    final attempt = (err.requestOptions.extra['_retry_count'] as int?) ?? 0;
+
+    if (!isNetworkError || attempt >= maxRetries) {
+      return handler.next(err);
+    }
+
+    // Backoff exponentiel : 2s, 4s, 8s
+    final delay = initialDelay * (attempt + 1);
+    await Future.delayed(delay);
+
+    final options = err.requestOptions;
+    options.extra['_retry_count'] = attempt + 1;
+
+    try {
+      final response = await dio.fetch(options);
+      return handler.resolve(response);
+    } on DioException catch (retryErr) {
+      return handler.next(retryErr);
+    }
+  }
+}
+
 class ApiClient {
   late final Dio _dio;
 
@@ -54,6 +97,9 @@ class ApiClient {
         headers: {'Accept': 'application/json'},
       ),
     );
+
+    // Retry pour les cold-starts Render (point 2 — problèmes de connexion)
+    _dio.interceptors.add(_RetryInterceptor(dio: _dio));
 
     // Le corps des requêtes/réponses peut contenir des données sensibles
     // (mots de passe, tokens JWT, informations de paiement) : ce journal

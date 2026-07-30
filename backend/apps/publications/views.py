@@ -48,8 +48,18 @@ class PublicationListView(generics.ListAPIView):
         pub_type = self.request.query_params.get('type')
         is_free = self.request.query_params.get('is_free')
         publisher_id = self.request.query_params.get('publisher_id')
+        ordering = self.request.query_params.get('ordering', '-created_at')
+
         if search:
-            qs = qs.filter(Q(title__icontains=search) | Q(description__icontains=search) | Q(tags__icontains=search))
+            # Point 6 : recherche multi-critères sur titre, description, tags, éditeur et catégorie
+            qs = qs.filter(
+                Q(title__icontains=search) |
+                Q(description__icontains=search) |
+                Q(tags__icontains=search) |
+                Q(publisher__name__icontains=search) |
+                Q(publisher__publisher_profile__company_name__icontains=search) |
+                Q(category__name__icontains=search)
+            ).distinct()
         if category:
             normalized = category.strip()
             qs = qs.filter(
@@ -62,7 +72,18 @@ class PublicationListView(generics.ListAPIView):
             qs = qs.filter(is_free=(is_free.lower() == 'true'))
         if publisher_id:
             qs = qs.filter(publisher_id=publisher_id)
+
+        # Tri sécurisé
+        allowed_orderings = {
+            'created_at', '-created_at', 'prix', '-prix',
+            'views_count', '-views_count', 'average_rating', '-average_rating',
+        }
+        if ordering in allowed_orderings:
+            qs = qs.order_by(ordering)
+        else:
+            qs = qs.order_by('-created_at')
         return qs
+
 
 
 class PublicationDetailView(generics.RetrieveAPIView):

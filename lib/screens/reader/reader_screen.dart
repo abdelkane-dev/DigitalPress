@@ -28,6 +28,57 @@ String sanitizeMediaUrl(String url) {
   return url;
 }
 
+/// Point 6 — Widget d'erreur affiché quand un lien média est inaccessible (404).
+Widget brokenMediaPlaceholder({
+  required String label,
+  String? url,
+  VoidCallback? onRetry,
+}) {
+  return Center(
+    child: Padding(
+      padding: const EdgeInsets.all(32),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.broken_image_outlined, size: 64, color: Colors.white38),
+          const SizedBox(height: 16),
+          Text(
+            label,
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: Colors.white70, fontSize: 15),
+          ),
+          if (url != null && url.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            ElevatedButton.icon(
+              icon: const Icon(Icons.open_in_browser_rounded, size: 18),
+              label: const Text('Ouvrir dans le navigateur'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF2C74B3),
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+              onPressed: () async {
+                final uri = Uri.tryParse(url);
+                if (uri != null && await canLaunchUrl(uri)) {
+                  await launchUrl(uri, mode: LaunchMode.externalApplication);
+                }
+              },
+            ),
+          ],
+          if (onRetry != null) ...[
+            const SizedBox(height: 8),
+            TextButton.icon(
+              icon: const Icon(Icons.refresh, size: 18, color: Colors.white54),
+              label: const Text('Réessayer', style: TextStyle(color: Colors.white54)),
+              onPressed: onRetry,
+            ),
+          ],
+        ],
+      ),
+    ),
+  );
+}
+
 /// Écran principal de lecture des journaux et magazines.
 /// Intègre :
 /// - Protection DRM (FLAG_SECURE = interdiction des captures d'écran)

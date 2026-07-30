@@ -13,12 +13,17 @@ class User(AbstractUser):
         ('publisher', 'Éditeur / Entreprise'),
         ('reader', 'Lecteur / Client'),
     ]
+    # Email rendu unique pour éviter la création de comptes doublons (point 1)
+    email = models.EmailField(unique=True)
     role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='reader')
     name = models.CharField(max_length=255, blank=True)
     phone = models.CharField(max_length=20, blank=True)
     avatar = models.URLField(blank=True)
     is_verified = models.BooleanField(default=False)
     solde = models.DecimalField(max_digits=12, decimal_places=2, default=0.00, help_text="Solde portefeuille client/lecteur")
+    # Informations de facturation (point 7)
+    billing_address = models.TextField(blank=True, help_text="Adresse de facturation")
+    billing_phone = models.CharField(max_length=25, blank=True, help_text="Numéro de facturation / contact")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -137,5 +142,45 @@ class PasswordResetCode(models.Model):
     def is_valid(self) -> bool:
         return not self.is_used and self.expires_at > timezone.now() and self.attempts < 5
 
-    def __str__(self):
         return f"Reset code for {self.user.username} (used={self.is_used})"
+
+
+class NotificationPreference(models.Model):
+    """Préférences de notification par utilisateur (point 5 — incohérence notifications).
+
+    Garantit que les notifications ne sont envoyées que sur les canaux
+    activés par l'utilisateur, avec la bonne fréquence.
+    """
+    FREQUENCY_CHOICES = [
+        ('immediate', 'Immédiat'),
+        ('daily_digest', 'Digest quotidien'),
+        ('disabled', 'Désactivé'),
+    ]
+
+    user = models.OneToOneField(
+        User, on_delete=models.CASCADE, related_name='notification_preference',
+    )
+    # Canaux d'envoi
+    email_enabled = models.BooleanField(default=True, help_text="Activer les notifications email")
+    push_enabled = models.BooleanField(default=True, help_text="Activer les notifications push (FCM)")
+    sms_enabled = models.BooleanField(default=False, help_text="Activer les notifications SMS")
+
+    # Fréquence
+    frequency = models.CharField(
+        max_length=20, choices=FREQUENCY_CHOICES, default='immediate',
+        help_text="Fréquence des notifications email",
+    )
+
+    # Types de notifications actifs
+    notify_new_publication = models.BooleanField(default=True)
+    notify_payment = models.BooleanField(default=True)
+    notify_subscription = models.BooleanField(default=True)
+
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = _('Préférence de notification')
+        verbose_name_plural = _('Préférences de notification')
+
+    def __str__(self):
+        return f"Préfs notif {self.user.username}"

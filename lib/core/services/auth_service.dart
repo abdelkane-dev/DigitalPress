@@ -154,6 +154,9 @@ class AuthService {
     String? address,
     String? website,
     String? bio,
+    // Informations de facturation (point 7)
+    String? billingAddress,
+    String? billingPhone,
   }) async {
     dynamic dataToSend;
     if (imagePath != null && !imagePath.startsWith('http') && !imagePath.startsWith('/media')) {
@@ -165,7 +168,9 @@ class AuthService {
       if (address != null) formDataMap['publisher_profile_address'] = address;
       if (website != null) formDataMap['publisher_profile_website'] = website;
       if (bio != null) formDataMap['publisher_profile_bio'] = bio;
-      
+      if (billingAddress != null) formDataMap['billing_address'] = billingAddress;
+      if (billingPhone != null) formDataMap['billing_phone'] = billingPhone;
+
       formDataMap['avatar'] = await MultipartFile.fromFile(
         imagePath,
         filename: imagePath.split('/').last,
@@ -176,6 +181,8 @@ class AuthService {
       if (name != null) payload['name'] = name;
       if (phone != null) payload['phone'] = phone;
       if (imagePath != null) payload['avatar'] = imagePath;
+      if (billingAddress != null) payload['billing_address'] = billingAddress;
+      if (billingPhone != null) payload['billing_phone'] = billingPhone;
       if (companyName != null || siret != null || address != null || website != null || bio != null) {
         payload['publisher_profile'] = {
           if (companyName != null) 'company_name': companyName,

@@ -27,6 +27,10 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
   late TextEditingController _websiteController;
   late TextEditingController _bioController;
 
+  // Champs de facturation (point 7)
+  late TextEditingController _billingAddressController;
+  late TextEditingController _billingPhoneController;
+
   bool _isLoading = false;
   File? _imageFile;
   final ImagePicker _picker = ImagePicker();
@@ -42,6 +46,9 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
     _addressController = TextEditingController(text: user?.address ?? '');
     _websiteController = TextEditingController(text: user?.website ?? '');
     _bioController = TextEditingController(text: user?.bio ?? '');
+    // Informations de facturation (point 7)
+    _billingAddressController = TextEditingController(text: user?.billingAddress ?? '');
+    _billingPhoneController = TextEditingController(text: user?.billingPhone ?? '');
   }
 
   @override
@@ -53,6 +60,8 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
     _addressController.dispose();
     _websiteController.dispose();
     _bioController.dispose();
+    _billingAddressController.dispose();
+    _billingPhoneController.dispose();
     super.dispose();
   }
 
@@ -122,6 +131,8 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
         address: user?.isPublisher == true ? _addressController.text.trim() : null,
         website: user?.isPublisher == true ? _websiteController.text.trim() : null,
         bio: user?.isPublisher == true ? _bioController.text.trim() : null,
+        billingAddress: _billingAddressController.text.trim(),
+        billingPhone: _billingPhoneController.text.trim(),
       );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -242,6 +253,24 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                 const SizedBox(height: 16),
                 _buildReadOnlyField('Accès', 'Toutes les fonctionnalités', Icons.lock_open_rounded),
               ],
+
+              // ── Informations de facturation (point 7) ───────────────────
+              const SizedBox(height: 28),
+              _buildSectionTitle('Informations de facturation', Icons.receipt_long_rounded),
+              const SizedBox(height: 12),
+              _buildTextField(
+                controller: _billingAddressController,
+                label: 'Adresse de facturation',
+                icon: Icons.home_work_rounded,
+                maxLines: 3,
+              ),
+              const SizedBox(height: 16),
+              _buildTextField(
+                controller: _billingPhoneController,
+                label: 'Numéro de contact / facturation',
+                icon: Icons.phone_in_talk_rounded,
+                keyboardType: TextInputType.phone,
+              ),
 
               const SizedBox(height: 36),
               _buildSaveButton(),

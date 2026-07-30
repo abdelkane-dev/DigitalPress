@@ -19,14 +19,18 @@ class _AuthLoginScreenState extends ConsumerState<AuthLoginScreen> {
   final _formKey = GlobalKey<FormState>();
   final _emailCtrl = TextEditingController();
   final _passwordCtrl = TextEditingController();
+  final _passwordConfirmCtrl = TextEditingController();
   final _nameCtrl = TextEditingController();
   late bool _isRegister;
   bool _obscure = true;
+  bool _obscureConfirm = true;
   bool _isLoading = false;
   bool? _backendOnline;
   String? _serverMessage;
   bool _backendStatusVisible = true;
   Timer? _backendStatusTimer;
+  // Point 1 : consentement explicite aux CGU en mode inscription
+  bool _acceptedTerms = false;
 
   @override
   void initState() {
@@ -72,12 +76,18 @@ class _AuthLoginScreenState extends ConsumerState<AuthLoginScreen> {
     _backendStatusTimer?.cancel();
     _emailCtrl.dispose();
     _passwordCtrl.dispose();
+    _passwordConfirmCtrl.dispose();
     _nameCtrl.dispose();
     super.dispose();
   }
 
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
+    // Point 1 : bloquer l'inscription si les CGU ne sont pas acceptées
+    if (_isRegister && !_acceptedTerms) {
+      _showError('Veuillez accepter les Conditions Générales d\'Utilisation pour vous inscrire.');
+      return;
+    }
     setState(() => _isLoading = true);
     try {
       final auth = ref.read(authServiceProvider);
@@ -186,7 +196,8 @@ class _AuthLoginScreenState extends ConsumerState<AuthLoginScreen> {
                         keyboardType: TextInputType.emailAddress,
                         validator: (v) {
                           if (v == null || v.isEmpty) return 'Email requis';
-                          if (!v.contains('@')) return 'Email invalide';
+                          final emailRegex = RegExp(r'^[\w\-\.]+@([\w\-]+\.)+[\w\-]{2,}$');
+                          if (!emailRegex.hasMatch(v.trim())) return 'Email invalide';
                           return null;
                         },
                       ),
@@ -215,6 +226,50 @@ class _AuthLoginScreenState extends ConsumerState<AuthLoginScreen> {
                           return null;
                         },
                       ),
+                      // Point 1 : confirmation de mot de passe + CGU en mode inscription
+                      if (_isRegister) ...[
+                        const SizedBox(height: 16),
+                        _field(
+                          controller: _passwordConfirmCtrl,
+                          label: 'Confirmer le mot de passe',
+                          icon: Icons.lock_reset_outlined,
+                          obscure: _obscureConfirm,
+                          suffix: IconButton(
+                            icon: Icon(
+                              _obscureConfirm
+                                  ? Icons.visibility_outlined
+                                  : Icons.visibility_off_outlined,
+                              color: Colors.grey,
+                            ),
+                            onPressed: () => setState(() => _obscureConfirm = !_obscureConfirm),
+                          ),
+                          validator: (v) {
+                            if (v == null || v.isEmpty) return 'Confirmez votre mot de passe';
+                            if (v != _passwordCtrl.text) return 'Les mots de passe ne correspondent pas';
+                            return null;
+                          },
+                        ),
+                        const SizedBox(height: 12),
+                        // Checkbox CGU obligatoire
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            Checkbox(
+                              value: _acceptedTerms,
+                              onChanged: (v) => setState(() => _acceptedTerms = v ?? false),
+                              activeColor: Colors.white,
+                              checkColor: const Color(0xFF0A2647),
+                              side: const BorderSide(color: Colors.white70),
+                            ),
+                            Expanded(
+                              child: Text(
+                                'J\'accepte les Conditions Générales d\'Utilisation et la Politique de confidentialité',
+                                style: const TextStyle(color: Colors.white70, fontSize: 12),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
                       const SizedBox(height: 24),
                       SizedBox(
                         width: double.infinity,
