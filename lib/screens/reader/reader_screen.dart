@@ -13,7 +13,6 @@ import 'package:syncfusion_flutter_pdfviewer/pdfviewer.dart';
 import '../../core/services/preview_service.dart';
 import '../../core/services/security_service.dart';
 import '../../widgets/short_video_player.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 String sanitizeMediaUrl(String url) {
   if (url.isEmpty) return url;
@@ -26,57 +25,6 @@ String sanitizeMediaUrl(String url) {
         .replaceAll('http://127.0.0.1:8000', actualHost);
   }
   return url;
-}
-
-/// Point 6 — Widget d'erreur affiché quand un lien média est inaccessible (404).
-Widget brokenMediaPlaceholder({
-  required String label,
-  String? url,
-  VoidCallback? onRetry,
-}) {
-  return Center(
-    child: Padding(
-      padding: const EdgeInsets.all(32),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Icon(Icons.broken_image_outlined, size: 64, color: Colors.white38),
-          const SizedBox(height: 16),
-          Text(
-            label,
-            textAlign: TextAlign.center,
-            style: const TextStyle(color: Colors.white70, fontSize: 15),
-          ),
-          if (url != null && url.isNotEmpty) ...[
-            const SizedBox(height: 12),
-            ElevatedButton.icon(
-              icon: const Icon(Icons.open_in_browser_rounded, size: 18),
-              label: const Text('Ouvrir dans le navigateur'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF2C74B3),
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-              ),
-              onPressed: () async {
-                final uri = Uri.tryParse(url);
-                if (uri != null && await canLaunchUrl(uri)) {
-                  await launchUrl(uri, mode: LaunchMode.externalApplication);
-                }
-              },
-            ),
-          ],
-          if (onRetry != null) ...[
-            const SizedBox(height: 8),
-            TextButton.icon(
-              icon: const Icon(Icons.refresh, size: 18, color: Colors.white54),
-              label: const Text('Réessayer', style: TextStyle(color: Colors.white54)),
-              onPressed: onRetry,
-            ),
-          ],
-        ],
-      ),
-    ),
-  );
 }
 
 /// Écran principal de lecture des journaux et magazines.
@@ -112,13 +60,8 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
 
   @override
   void dispose() {
-    // Désactiver FLAG_SECURE quand on quitte le lecteur.
-    // On récupère la référence AVANT super.dispose() car après, ref est invalide.
-    try {
-      ref.read(securityServiceProvider).setSecureMode(false);
-    } catch (_) {
-      // Peut arriver si le widget est déjà détaché du tree (navigation rapide).
-    }
+    // Désactiver FLAG_SECURE quand on quitte le lecteur
+    ref.read(securityServiceProvider).setSecureMode(false);
     _pdfViewerController.dispose();
     super.dispose();
   }
@@ -133,23 +76,9 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                IconButton(
-                  icon: const Icon(Icons.open_in_browser_rounded, color: Colors.white, size: 30),
-                  onPressed: () async {
-                    final uri = Uri.parse(videoUrl);
-                    if (await canLaunchUrl(uri)) {
-                      await launchUrl(uri, mode: LaunchMode.externalApplication);
-                    }
-                  },
-                ),
-                IconButton(
-                  icon: const Icon(Icons.close_rounded, color: Colors.white, size: 30),
-                  onPressed: () => Navigator.pop(context),
-                ),
-              ],
+            IconButton(
+              icon: const Icon(Icons.close_rounded, color: Colors.white, size: 30),
+              onPressed: () => Navigator.pop(context),
             ),
             ShortVideoPlayer(videoUrl: videoUrl, title: title),
           ],
@@ -347,7 +276,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                         size: 56, color: Colors.grey),
                     const SizedBox(height: 16),
                     const Text(
-                      'Abonnement requis pour lire ce document',
+                      'Achat ou abonnement requis pour lire ce document',
                       style:
                           TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                       textAlign: TextAlign.center,
@@ -355,8 +284,8 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                     const SizedBox(height: 16),
                     ElevatedButton.icon(
                       onPressed: _showSubscribeSheet,
-                      icon: const Icon(Icons.star_rounded),
-                      label: const Text('Voir les options d\'abonnement'),
+                      icon: const Icon(Icons.shopping_cart_rounded),
+                      label: const Text('Acheter ce journal'),
                     ),
                   ],
                 ),
@@ -365,127 +294,114 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
           else
             pubDetailAsync.when(
               data: (pub) {
-                if (pub.pubType == 'article' || pub.fileUrl.isEmpty) {
-                  if (pub.prix > 0 && !pub.isSubscribed) {
-                    return Center(
-                      child: Padding(
-                        padding: const EdgeInsets.all(24),
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            const Icon(Icons.lock_outline_rounded,
-                                size: 56, color: Colors.grey),
-                            const SizedBox(height: 16),
-                            const Text(
-                              'Cet article est payant',
-                              style: TextStyle(
-                                  fontWeight: FontWeight.bold, fontSize: 16),
-                              textAlign: TextAlign.center,
-                            ),
-                            const SizedBox(height: 10),
-                            const Text(
-                              'Vous devez acheter ou vous abonner pour lire le contenu complet.',
-                              textAlign: TextAlign.center,
-                            ),
-                            const SizedBox(height: 24),
-                            ElevatedButton.icon(
-                              onPressed: _showSubscribeSheet,
-                              icon: const Icon(Icons.star_rounded),
-                              label: const Text('Voir les options'),
-                            ),
-                          ],
-                        ),
+                if (pub.prix > 0 && !pub.isSubscribed) {
+                  return Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(Icons.lock_outline_rounded,
+                              size: 56, color: Colors.grey),
+                          const SizedBox(height: 16),
+                          const Text(
+                            'Contenu protégé',
+                            style: TextStyle(
+                                fontWeight: FontWeight.bold, fontSize: 16),
+                            textAlign: TextAlign.center,
+                          ),
+                          const SizedBox(height: 10),
+                          const Text(
+                            'Vous devez acheter ce contenu ou vous abonner pour y accéder.',
+                            textAlign: TextAlign.center,
+                          ),
+                          const SizedBox(height: 24),
+                          ElevatedButton.icon(
+                            onPressed: _showSubscribeSheet,
+                            icon: const Icon(Icons.shopping_cart_rounded),
+                            label: const Text('Débloquer l\'accès'),
+                          ),
+                        ],
                       ),
-                    );
-                  }
+                    ),
+                  );
+                }
+
+                if (pub.pubType == 'article') {
+
 
                   return _buildArticleContentView(pub, state.isNightMode);
                 }
-                return ColorFiltered(
-                  colorFilter: state.isNightMode
-                      ? const ColorFilter.matrix([
-                          -1,
-                          0,
-                          0,
-                          0,
-                          255,
-                          0,
-                          -1,
-                          0,
-                          0,
-                          255,
-                          0,
-                          0,
-                          -1,
-                          0,
-                          255,
-                          0,
-                          0,
-                          0,
-                          1,
-                          0,
-                        ])
-                      : const ColorFilter.mode(
-                          Colors.transparent,
-                          BlendMode.multiply,
-                        ),
-                  child: state.localFilePath != null
-                      ? SfPdfViewer.file(
-                          File(state.localFilePath!),
-                          controller: _pdfViewerController,
-                          onDocumentLoaded: (details) {
-                            if (mounted) {
-                              viewModel
-                                  .onDocumentLoaded(details.document.pages.count);
-                              if (state.currentPage > 1) {
-                                _pdfViewerController
-                                    .jumpToPage(state.currentPage);
+                final pdfViewer = state.localFilePath != null
+                    ? SfPdfViewer.file(
+                        File(state.localFilePath!),
+                        controller: _pdfViewerController,
+                        onDocumentLoaded: (details) {
+                          if (mounted) {
+                            viewModel
+                                .onDocumentLoaded(details.document.pages.count);
+                            if (state.currentPage > 1) {
+                              _pdfViewerController
+                                  .jumpToPage(state.currentPage);
+                            }
+                          }
+                        },
+                        onDocumentLoadFailed: (details) {
+                          if (mounted) {
+                            viewModel.onReaderError(
+                              'Impossible de charger le fichier local: ${details.description}',
+                            );
+                          }
+                        },
+                        onPageChanged: (details) {
+                          if (mounted) {
+                            _onPageChanged(
+                                details, widget.isSubscribed, viewModel);
+                          }
+                        },
+                      )
+                    : (state.fileUrl == null
+                        ? const SizedBox.shrink()
+                        : SfPdfViewer.network(
+                            sanitizeMediaUrl(state.fileUrl!),
+                            controller: _pdfViewerController,
+                            onDocumentLoaded: (details) {
+                              if (mounted) {
+                                viewModel.onDocumentLoaded(
+                                    details.document.pages.count);
+                                if (state.currentPage > 1) {
+                                  _pdfViewerController
+                                      .jumpToPage(state.currentPage);
+                                }
                               }
-                            }
-                          },
-                          onDocumentLoadFailed: (details) {
-                            if (mounted) {
-                              viewModel.onReaderError(
-                                'Impossible de charger le fichier local: ${details.description}',
-                              );
-                            }
-                          },
-                          onPageChanged: (details) {
-                            if (mounted) {
-                              _onPageChanged(
-                                  details, widget.isSubscribed, viewModel);
-                            }
-                          },
-                        )
-                      : (state.fileUrl == null || state.fileUrl!.isEmpty
-                          ? const SizedBox.shrink()
-                          : SfPdfViewer.network(
-                              sanitizeMediaUrl(state.fileUrl!),
-                              controller: _pdfViewerController,
-                              onDocumentLoaded: (details) {
-                                if (mounted) {
-                                  viewModel.onDocumentLoaded(
-                                      details.document.pages.count);
-                                  if (state.currentPage > 1) {
-                                    _pdfViewerController
-                                        .jumpToPage(state.currentPage);
-                                  }
-                                }
-                              },
-                              onDocumentLoadFailed: (details) {
-                                if (mounted) {
-                                  viewModel.onReaderError(
-                                    'Impossible de charger le document: ${details.description}',
-                                  );
-                                }
-                              },
-                              onPageChanged: (details) {
-                                if (mounted) {
-                                  _onPageChanged(
-                                      details, widget.isSubscribed, viewModel);
-                                }
-                              },
-                            )),
+                            },
+                            onDocumentLoadFailed: (details) {
+                              if (mounted) {
+                                viewModel.onReaderError(
+                                  'Impossible de charger le document: ${details.description}',
+                                );
+                              }
+                            },
+                            onPageChanged: (details) {
+                              if (mounted) {
+                                _onPageChanged(
+                                    details, widget.isSubscribed, viewModel);
+                              }
+                            },
+                          ));
+
+                if (!state.isNightMode) {
+                  return pdfViewer;
+                }
+
+                return ColorFiltered(
+                  colorFilter: const ColorFilter.matrix([
+                    -1, 0, 0, 0, 255,
+                    0, -1, 0, 0, 255,
+                    0, 0, -1, 0, 255,
+                    0, 0, 0, 1, 0,
+                  ]),
+                  child: pdfViewer,
                 );
               },
               loading: () => const Center(child: CircularProgressIndicator()),
@@ -841,30 +757,13 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Expanded(
-                      child: Text(
-                        '🎬 $videoTitle',
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 15,
-                          color: themeHeaderColor,
-                        ),
-                      ),
-                    ),
-                    TextButton.icon(
-                      icon: const Icon(Icons.open_in_browser_rounded, size: 18),
-                      label: const Text('Ouvrir', style: TextStyle(fontSize: 12)),
-                      onPressed: () async {
-                        final uri = Uri.parse(videoUrl);
-                        if (await canLaunchUrl(uri)) {
-                          await launchUrl(uri, mode: LaunchMode.externalApplication);
-                        }
-                      },
-                    ),
-                  ],
+                Text(
+                  '🎬 $videoTitle',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 15,
+                    color: themeHeaderColor,
+                  ),
                 ),
                 const SizedBox(height: 6),
                 ClipRRect(
@@ -894,91 +793,60 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
           final pdfUrl = sanitizeMediaUrl(simpleLinkMatch.group(2) ?? '');
           widgets.add(Padding(
             padding: const EdgeInsets.symmetric(vertical: 12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            child: Container(
+              height: 550, // Hauteur augmentée pour une meilleure lisibilité
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: isNightMode ? Colors.white24 : Colors.grey.shade300,
+                ),
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(16),
+                child: Stack(
                   children: [
-                    Expanded(
-                      child: Text(
-                        '📄 $pdfTitle',
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 15,
-                          color: themeHeaderColor,
-                        ),
-                      ),
-                    ),
-                    TextButton.icon(
-                      icon: const Icon(Icons.open_in_browser_rounded, size: 18),
-                      label: const Text('Ouvrir', style: TextStyle(fontSize: 12)),
-                      onPressed: () async {
-                        final uri = Uri.parse(pdfUrl);
-                        if (await canLaunchUrl(uri)) {
-                          await launchUrl(uri, mode: LaunchMode.externalApplication);
-                        }
+                    SfPdfViewer.network(
+                      pdfUrl,
+                      scrollDirection: PdfScrollDirection.horizontal,
+                      pageLayoutMode: PdfPageLayoutMode.single,
+                      enableDoubleTapZooming: true,
+                      onDocumentLoadFailed: (details) {
+                        debugPrint('Failed to load inline PDF: ${details.description}');
                       },
                     ),
-                  ],
-                ),
-                const SizedBox(height: 6),
-                Container(
-                  height: 550, // Hauteur augmentée pour une meilleure lisibilité
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(
-                      color: isNightMode ? Colors.white24 : Colors.grey.shade300,
-                    ),
-                  ),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(16),
-                    child: Stack(
-                      children: [
-                        SfPdfViewer.network(
-                          pdfUrl,
-                          scrollDirection: PdfScrollDirection.horizontal,
-                          pageLayoutMode: PdfPageLayoutMode.single,
-                          enableDoubleTapZooming: true,
-                          onDocumentLoadFailed: (details) {
-                            debugPrint('Failed to load inline PDF: ${details.description}');
-                          },
-                        ),
-                        Positioned(
-                          top: 12,
-                          right: 12,
-                          child: Material(
-                            color: Colors.black.withValues(alpha: 0.6),
-                            borderRadius: BorderRadius.circular(20),
-                            child: InkWell(
-                              borderRadius: BorderRadius.circular(20),
-                              onTap: () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (context) => FullScreenPdfViewer(
-                                      pdfUrl: pdfUrl,
-                                      title: publication.title.isNotEmpty ? publication.title : pdfTitle,
-                                    ),
-                                  ),
-                                );
-                              },
-                              child: const Padding(
-                                padding: EdgeInsets.all(8),
-                                child: Icon(
-                                  Icons.fullscreen_rounded,
-                                  color: Colors.white,
-                                  size: 28,
+                    Positioned(
+                      top: 12,
+                      right: 12,
+                      child: Material(
+                        color: Colors.black.withValues(alpha: 0.6),
+                        borderRadius: BorderRadius.circular(20),
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(20),
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => FullScreenPdfViewer(
+                                  pdfUrl: pdfUrl,
+                                  title: publication.title.isNotEmpty ? publication.title : pdfTitle,
                                 ),
                               ),
+                            );
+                          },
+                          child: const Padding(
+                            padding: EdgeInsets.all(8),
+                            child: Icon(
+                              Icons.fullscreen_rounded,
+                              color: Colors.white,
+                              size: 28,
                             ),
                           ),
                         ),
-                      ],
+                      ),
                     ),
-                  ),
+                  ],
                 ),
-              ],
+              ),
             ),
           ));
           continue;

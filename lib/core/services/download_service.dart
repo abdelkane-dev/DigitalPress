@@ -1,13 +1,19 @@
-import 'dart:io';
 import 'dart:isolate';
 import 'dart:ui';
 import 'package:flutter/foundation.dart';
-import 'package:flutter_downloader/flutter_downloader.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:logger/logger.dart';
+import 'package:dio/dio.dart';
+import 'package:url_launcher/url_launcher.dart';
+import '../utils/platform_helper.dart';
+
+// Import conditionnel : flutter_downloader n'est disponible que sur mobile.
+// On l'importe conditionnellement via un wrapper.
+import 'download_service_mobile.dart'
+    if (dart.library.html) 'download_service_stub.dart' as mobile_downloader;
 
 final downloadServiceProvider = Provider<DownloadService>((ref) {
   return DownloadService();
@@ -15,13 +21,16 @@ final downloadServiceProvider = Provider<DownloadService>((ref) {
 
 class DownloadService {
   final _logger = Logger();
-  final ReceivePort _port = ReceivePort();
 
   DownloadService() {
-    if (!kIsWeb) {
+    if (!kIsWeb && PlatformHelper.supportsFlutterDownloader) {
       _bindBackgroundIsolate();
     }
   }
+
+  // ─── Background Isolate (mobile uniquement) ──────────────────────────────
+
+  final ReceivePort _port = ReceivePort();
 
   void _bindBackgroundIsolate() {
     bool isSuccess = IsolateNameServer.registerPortWithName(
@@ -37,8 +46,6 @@ class DownloadService {
       String id = data[0];
       int status = data[1];
       int progress = data[2];
-
-      // Update logic would go here if we were using a stream/callback
       _logger.d('Download task: $id, status: $status, progress: $progress');
     });
   }
@@ -47,6 +54,7 @@ class DownloadService {
     IsolateNameServer.removePortNameMapping('downloader_send_port');
   }
 
+  @pragma('vm:entry-point')
   static void downloadCallback(String id, int status, int progress) {
     final SendPort? send = IsolateNameServer.lookupPortByName(
       'downloader_send_port',
@@ -54,30 +62,53 @@ class DownloadService {
     send?.send([id, status, progress]);
   }
 
+  // ─── Initialisation ──────────────────────────────────────────────────────
+
   Future<void> initialize() async {
     if (kIsWeb) return;
-    await FlutterDownloader.initialize(debug: true, ignoreSsl: true);
-    FlutterDownloader.registerCallback(downloadCallback);
+    if (PlatformHelper.supportsFlutterDownloader) {
+      await mobile_downloader.initializeDownloader();
+      mobile_downloader.registerCallback(downloadCallback);
+    }
+    // Sur desktop, pas d'initialisation spéciale nécessaire (on utilise Dio).
   }
+
+  // ─── Permissions ─────────────────────────────────────────────────────────
 
   Future<bool> requestPermissions() async {
     if (kIsWeb) return false;
-    if (Platform.isAndroid) {
+
+    if (PlatformHelper.isAndroid) {
       final status = await Permission.storage.request();
       if (status.isGranted) return true;
 
-      // Android 13+ permission
+      // Android 13+ permissions
       if (await Permission.photos.request().isGranted) return true;
       if (await Permission.videos.request().isGranted) return true;
       if (await Permission.audio.request().isGranted) return true;
-
-      // For Android 10+ scoped storage, we might not need explicit storage permission
-      // if using app-specific directories, but good to check.
     }
-    return true; // iOS doesn't need explicit storage permission for app sandbox
+
+    // iOS, macOS, Windows, Linux — pas de permission de stockage nécessaire
+    // pour l'app sandbox / dossier documents de l'application.
+    return true;
   }
 
+  // ─── Téléchargement ──────────────────────────────────────────────────────
+
+  /// Télécharge un journal.
+  /// - Sur mobile (Android/iOS) : utilise flutter_downloader avec notification
+  /// - Sur desktop (macOS/Windows/Linux) : utilise Dio download direct
   Future<String?> downloadJournal(String url, String fileName) async {
+    if (kIsWeb) {
+      final uri = Uri.tryParse(url);
+      if (uri != null && await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      } else {
+        _logger.e('Impossible de lancer l\'URL sur le web: $url');
+      }
+      return null;
+    }
+
     final hasPermission = await requestPermissions();
     if (!hasPermission) {
       _logger.w('Permission de stockage refusée');
@@ -88,20 +119,31 @@ class DownloadService {
     final savedDir = directory.path;
 
     try {
-      final taskId = await FlutterDownloader.enqueue(
-        url: url,
-        savedDir: savedDir,
-        fileName: fileName,
-        showNotification: true,
-        openFileFromNotification: false,
-        saveInPublicStorage: false,
-      );
-      return taskId;
+      if (PlatformHelper.supportsFlutterDownloader) {
+        // ── Mobile : flutter_downloader ─────────────────────────────────
+        final taskId = await mobile_downloader.enqueueDownload(
+          url: url,
+          savedDir: savedDir,
+          fileName: fileName,
+        );
+        return taskId;
+      } else {
+        // ── Desktop : Dio download ─────────────────────────────────────
+        // We avoid importing dart:io directly for path separators.
+        // Windows uses '\', others use '/'. We'll just use '/'.
+        final filePath = '$savedDir/$fileName';
+        final dio = Dio();
+        await dio.download(url, filePath);
+        _logger.i('Fichier téléchargé (desktop) : $filePath');
+        return filePath;
+      }
     } catch (e) {
       _logger.e('Erreur lors du téléchargement: $e');
       return null;
     }
   }
+
+  // ─── Cache local (Hive) ──────────────────────────────────────────────────
 
   Future<void> saveDownloadLocation(String journalId, String path) async {
     final box = await Hive.openBox('downloads');
@@ -113,7 +155,13 @@ class DownloadService {
     return box.get(journalId) as String?;
   }
 
+  // ─── Annulation ──────────────────────────────────────────────────────────
+
   Future<void> cancelDownload(String taskId) async {
-    await FlutterDownloader.cancel(taskId: taskId);
+    if (PlatformHelper.supportsFlutterDownloader) {
+      await mobile_downloader.cancelDownload(taskId);
+    }
+    // Sur desktop, l'annulation d'un Dio download devrait utiliser un
+    // CancelToken — à implémenter si besoin.
   }
 }

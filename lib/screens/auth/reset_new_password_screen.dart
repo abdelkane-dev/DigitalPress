@@ -109,7 +109,7 @@ class _ResetNewPasswordScreenState
                   child: Container(
                     decoration: BoxDecoration(
                       // ignore: deprecated_member_use
-                      color: Colors.white.withOpacity(0.2),
+                      color: Colors.white.withValues(alpha: 0.2),
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: IconButton(
@@ -130,7 +130,7 @@ class _ResetNewPasswordScreenState
                         padding: const EdgeInsets.all(24),
                         decoration: BoxDecoration(
                           // ignore: deprecated_member_use
-                          color: Colors.white.withOpacity(0.15),
+                          color: Colors.white.withValues(alpha: 0.15),
                           shape: BoxShape.circle,
                         ),
                         child: const Icon(Icons.password_rounded,
@@ -152,7 +152,7 @@ class _ResetNewPasswordScreenState
                         style: TextStyle(
                           fontSize: 14,
                           // ignore: deprecated_member_use
-                          color: Colors.white.withOpacity(0.9),
+                          color: Colors.white.withValues(alpha: 0.9),
                         ),
                         textAlign: TextAlign.center,
                       ),

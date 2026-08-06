@@ -25,6 +25,7 @@ class Publication {
 
   // Pricing
   final double prix;
+  final double? resellPrice;
   final bool isFree;
 
   // Meta
@@ -36,6 +37,8 @@ class Publication {
   final double? averageRating;
   final int reviewsCount;
   final bool isSubscribed;  // Calculé par le backend selon l'abonnement actif
+  final int? originalPublicationId;
+  final String? originalPublisherName;
   final DateTime? publishedAt;
   final DateTime? createdAt;
   final DateTime? updatedAt;
@@ -54,6 +57,7 @@ class Publication {
     this.fileUrl = '',
     this.videoUrl = '',
     this.prix = 0.0,
+    this.resellPrice,
     this.isFree = false,
     this.status = 'published',
     this.pubType = 'article',
@@ -63,6 +67,8 @@ class Publication {
     this.averageRating,
     this.reviewsCount = 0,
     this.isSubscribed = false,
+    this.originalPublicationId,
+    this.originalPublisherName,
     this.publishedAt,
     this.createdAt,
     this.updatedAt,
@@ -100,6 +106,9 @@ class Publication {
       prix: double.tryParse(json['prix']?.toString() ?? '0') ??
           (json['price'] as num?)?.toDouble() ??
           0.0,
+      resellPrice: json['resell_price'] != null 
+          ? double.tryParse(json['resell_price'].toString()) 
+          : null,
       isFree: json['is_free'] ?? false,
       status: json['status'] ?? 'published',
       pubType: json['pub_type'] ?? json['type'] ?? 'article',
@@ -111,6 +120,8 @@ class Publication {
           : null,
       reviewsCount: json['reviews_count'] ?? 0,
       isSubscribed: json['is_subscribed'] ?? false,
+      originalPublicationId: json['original_publication'],
+      originalPublisherName: json['original_publisher_name'],
       publishedAt: _parseDate(json['published_date'] ?? json['published_at']),
       createdAt: _parseDate(json['created_at']),
       updatedAt: _parseDate(json['updated_at']),
@@ -133,6 +144,7 @@ class Publication {
         'file_url': fileUrl,
         'video_url': videoUrl,
         'prix': prix,
+        'resell_price': resellPrice,
         'is_free': isFree,
         'status': status,
         'pub_type': pubType,
@@ -171,6 +183,7 @@ class Publication {
     String? fileUrl,
     String? videoUrl,
     double? prix,
+    double? resellPrice,
     bool? isFree,
     String? status,
     String? pubType,
@@ -179,6 +192,8 @@ class Publication {
     List<String>? tags,
     double? averageRating,
     int? reviewsCount,
+    int? originalPublicationId,
+    String? originalPublisherName,
     DateTime? publishedAt,
     DateTime? createdAt,
     DateTime? updatedAt,
@@ -197,6 +212,7 @@ class Publication {
       fileUrl: fileUrl ?? this.fileUrl,
       videoUrl: videoUrl ?? this.videoUrl,
       prix: prix ?? this.prix,
+      resellPrice: resellPrice ?? this.resellPrice,
       isFree: isFree ?? this.isFree,
       status: status ?? this.status,
       pubType: pubType ?? this.pubType,
@@ -205,6 +221,8 @@ class Publication {
       tags: tags ?? this.tags,
       averageRating: averageRating ?? this.averageRating,
       reviewsCount: reviewsCount ?? this.reviewsCount,
+      originalPublicationId: originalPublicationId ?? this.originalPublicationId,
+      originalPublisherName: originalPublisherName ?? this.originalPublisherName,
       publishedAt: publishedAt ?? this.publishedAt,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,

@@ -308,28 +308,10 @@ STATIC_ROOT = BASE_DIR / 'staticfiles'
 # WhiteNoise : compression + cache busting automatique en production
 STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
-# ─── STOCKAGE CLOUD (Supabase Storage) ──────────────────────────────────────
-# Si les variables SUPABASE_URL + SUPABASE_KEY sont définies sur Render :
-#   → Les fichiers uploadés sont stockés sur Supabase (persistants, CDN, gratuit)
-# Sinon :
-#   → Fallback sur le dossier media/ local (éphémère — dev local uniquement !)
-#
-# Variables d'environnement à définir sur Render :
-#   SUPABASE_URL    → https://xxxx.supabase.co
-#   SUPABASE_KEY    → Clé service_role (Settings > API > service_role secret)
-#   SUPABASE_BUCKET → Nom du bucket public (défaut: digitalpress-media)
+# Les fichiers média sont stockés dans le dossier media/ local (éphémère sur Render gratuit)
+MEDIA_ROOT = BASE_DIR / 'media'
 
-SUPABASE_URL    = os.getenv('SUPABASE_URL', '')
-SUPABASE_KEY    = os.getenv('SUPABASE_KEY', '')
-SUPABASE_BUCKET = os.getenv('SUPABASE_BUCKET', 'digitalpress-media')
-
-MEDIA_ROOT = BASE_DIR / 'media'  # Conservé pour compat (inutilisé avec Supabase)
-
-if SUPABASE_URL and SUPABASE_KEY:
-    DEFAULT_FILE_STORAGE = 'apps.publications.storage.SupabaseStorage'
-    MEDIA_URL = f'{SUPABASE_URL}/storage/v1/object/public/{SUPABASE_BUCKET}/'
-else:
-    MEDIA_URL = '/media/'  # Dev local uniquement — NE PAS utiliser sur Render !
+MEDIA_URL = '/media/'
 
 # ─── INTERNATIONALISATION ────────────────────────────────────────────────────
 LANGUAGE_CODE = 'fr-fr'

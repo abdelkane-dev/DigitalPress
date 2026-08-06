@@ -123,27 +123,34 @@ class FavoritePublicationSerializer(serializers.Serializer):
 
 class PublicationSerializer(serializers.ModelSerializer):
     publisher_name = serializers.SerializerMethodField()
-    category_name = serializers.SerializerMethodField()
+    category_name = serializers.CharField(source='category.name', read_only=True)
     is_subscribed = serializers.SerializerMethodField()
     file_url = serializers.SerializerMethodField()
     content = serializers.SerializerMethodField()
     average_rating = serializers.SerializerMethodField()
     reviews_count = serializers.SerializerMethodField()
     tags_list = serializers.ReadOnlyField()
+    original_publisher_name = serializers.SerializerMethodField()
 
     class Meta:
         model = Publication
         fields = [
             'id', 'title', 'description', 'content', 'publisher', 'publisher_name',
             'category', 'category_name', 'cover_image', 'file_url', 'video_url', 'prix',
+            'resell_price', 'original_publication', 'original_publisher_name',
             'status', 'pub_type', 'is_free', 'views_count', 'downloads_count',
             'tags', 'tags_list', 'average_rating', 'reviews_count', 'is_subscribed',
             'created_at', 'updated_at',
         ]
-        read_only_fields = ['publisher', 'views_count', 'downloads_count', 'created_at', 'updated_at']
+        read_only_fields = ['publisher', 'views_count', 'downloads_count', 'created_at', 'updated_at', 'original_publication']
 
-    def get_category_name(self, obj):
-        return obj.category.name if obj.category else ""
+    def get_original_publisher_name(self, obj):
+        if obj.original_publication:
+            pub = obj.original_publication.publisher
+            if pub.role == 'publisher' and hasattr(pub, 'publisher_profile'):
+                return pub.publisher_profile.company_name
+            return pub.name or pub.username
+        return None
 
     def get_publisher_name(self, obj):
         if obj.publisher.role == 'publisher' and hasattr(obj.publisher, 'publisher_profile'):
@@ -244,7 +251,7 @@ class PublicationCreateSerializer(serializers.ModelSerializer):
         model = Publication
         fields = [
             'id', 'title', 'description', 'content', 'category', 'category_name',
-            'cover_image', 'file_url', 'video_url', 'prix', 'status', 'pub_type', 'is_free',
+            'cover_image', 'file_url', 'video_url', 'prix', 'resell_price', 'status', 'pub_type', 'is_free',
             'tags',
         ]
 
@@ -266,6 +273,13 @@ class PublicationCreateSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         validated_data['publisher'] = self.context['request'].user
         return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        if instance.original_publication is not None:
+            # Empêcher la modification des champs clés pour une republication
+            for field in ['title', 'description', 'content', 'cover_image', 'file_url', 'video_url', 'category', 'pub_type']:
+                validated_data.pop(field, None)
+        return super().update(instance, validated_data)
 
     def to_representation(self, instance):
         data = super().to_representation(instance)

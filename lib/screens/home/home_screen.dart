@@ -1,10 +1,8 @@
-import 'dart:io';
+import 'dart:ui';
 import 'package:digital_press/widgets/subscribe_or_buy_sheet.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/services/auth_service.dart';
-import '../notifications/notifications_screen.dart';
-import '../../widgets/notification_bell_button.dart';
 import '../categories/categories_screen.dart';
 import '../conversations/conversations_screen.dart';
 import '../roadmap/feature_roadmap_screen.dart';
@@ -13,6 +11,7 @@ import 'package:go_router/go_router.dart';
 import '../../model/publication.dart';
 import '../../core/services/publication_service.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import '../../widgets/main_app_bar.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -58,7 +57,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFC),
+      extendBody: true,
       body: _buildBody(),
       bottomNavigationBar: _buildBottomNavigationBar(),
     );
@@ -107,7 +106,31 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       },
       child: CustomScrollView(
         slivers: [
-          _buildModernAppBar(),
+          MainAppBar(
+            title: 'DigitalPress',
+            showLogo: true,
+            extraAction: Container(
+              margin: const EdgeInsets.only(right: 4),
+              decoration: BoxDecoration(
+                color: Colors.grey.shade200,
+                shape: BoxShape.circle,
+              ),
+              child: IconButton(
+                padding: const EdgeInsets.all(8),
+                constraints: const BoxConstraints(),
+                icon: Icon(
+                  _isGridView ? Icons.view_list_rounded : Icons.grid_view_rounded,
+                  color: const Color(0xFF0A2647),
+                  size: 20,
+                ),
+                onPressed: () {
+                  setState(() {
+                    _isGridView = !_isGridView;
+                  });
+                },
+              ),
+            ),
+          ),
           SliverToBoxAdapter(child: _buildSearchBar()),
           SliverToBoxAdapter(child: _buildRoleAccessButton(ref)),
           SliverToBoxAdapter(child: _buildCategoryChips()),
@@ -205,210 +228,25 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     return const SizedBox.shrink();
   }
 
-  Widget _buildModernAppBar() {
-    return SliverAppBar(
-      expandedHeight: 150.0,
-      floating: false,
-      pinned: true,
-      elevation: 0,
-      backgroundColor: const Color(0xFF0A2647),
-      flexibleSpace: FlexibleSpaceBar(
-        background: Container(
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [Color(0xFF0A2647), Color(0xFF144272)],
-            ),
-          ),
-          child: Stack(
-            children: [
-              // Cercles décoratifs
-              Positioned(
-                right: -30,
-                top: -30,
-                child: Container(
-                  width: 120,
-                  height: 120,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: Colors.white.withAlpha(10),
-                  ),
-                ),
-              ),
-              Positioned(
-                left: -20,
-                bottom: -20,
-                child: Container(
-                  width: 80,
-                  height: 80,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: const Color(0xFF2C74B3).withAlpha(30),
-                  ),
-                ),
-              ),
-              // Logo + "DigitalPress" — en haut à gauche, même colonne que la photo
-              Positioned(
-                left: 20,
-                top: 52,
-                child: Row(
-                  children: [
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(8),
-                      child: Image.asset(
-                        'assets/app_icon.png',
-                        width: 32,
-                        height: 32,
-                        fit: BoxFit.cover,
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    const Text(
-                      'DigitalPress',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w900,
-                        fontSize: 20,
-                        letterSpacing: -0.5,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              // Photo de profil + nom utilisateur — en bas à gauche
-              Positioned(
-                left: 20,
-                bottom: 12,
-                child: Consumer(
-                  builder: (context, ref, child) {
-                    final user = ref.watch(authServiceProvider).currentUser;
-                    final imagePath = user?.photoUrl;
-                    final userName = user?.displayName ?? 'Lecteur';
-                    ImageProvider? imageProvider;
-
-                    if (imagePath != null && imagePath.isNotEmpty) {
-                      if (imagePath.startsWith('http')) {
-                        imageProvider = NetworkImage(imagePath);
-                      } else {
-                        imageProvider = FileImage(File(imagePath));
-                      }
-                    }
-
-                    return Row(
-                      children: [
-                        GestureDetector(
-                          onTap: () {
-                            setState(() {
-                              _selectedIndex = 3; // Switch to Profile tab
-                            });
-                          },
-                          child: Container(
-                            width: 58,
-                            height: 58,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: const Color(0xFF2C74B3),
-                              border: Border.all(color: Colors.white, width: 2.5),
-                              image: imageProvider != null
-                                  ? DecorationImage(
-                                      image: imageProvider,
-                                      fit: BoxFit.cover,
-                                    )
-                                  : null,
-                            ),
-                            child: imageProvider == null
-                                ? const Icon(
-                                    Icons.person_rounded,
-                                    color: Colors.white,
-                                    size: 30,
-                                  )
-                                : null,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Text(
-                              'Bienvenue,',
-                              style: TextStyle(
-                                color: Colors.white70,
-                                fontSize: 14,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                            Text(
-                              userName,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 20,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    );
-                  },
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-      actions: [
-        IconButton(
-          icon: Icon(
-            _isGridView ? Icons.view_list_rounded : Icons.grid_view_rounded,
-            color: Colors.white,
-          ),
-          onPressed: () {
-            setState(() {
-              _isGridView = !_isGridView;
-            });
-          },
-        ),
-        NotificationBellButton(
-          color: Colors.white,
-          onPressed: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (context) => const NotificationsScreen(),
-              ),
-            );
-          },
-        ),
-        const SizedBox(width: 8),
-      ],
-    );
-  }
 
 
   Widget _buildSearchBar() {
     return Container(
       margin: const EdgeInsets.fromLTRB(16, 16, 16, 8),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: Colors.grey.shade100,
         borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFF0A2647).withAlpha(10),
-            blurRadius: 20,
-            offset: const Offset(0, 4),
-          ),
-        ],
+        border: Border.all(color: Colors.grey.shade300, width: 1.5),
       ),
       child: TextField(
         controller: _searchController,
+        style: const TextStyle(color: Colors.black87),
         decoration: InputDecoration(
           hintText: 'Rechercher un journal...',
-          hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 15),
+          hintStyle: TextStyle(color: Colors.grey.shade500, fontSize: 15),
           prefixIcon: const Icon(
             Icons.search_rounded,
-            color: Color(0xFF2C74B3),
+            color: Color(0xFF336B82),
             size: 24,
           ),
           suffixIcon: _searchController.text.isNotEmpty
@@ -463,22 +301,21 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
               label: Text(
                 category,
                 style: TextStyle(
-                  color: isSelected ? Colors.white : const Color(0xFF0A2647),
+                  color: isSelected ? Colors.white : Colors.black87,
                   fontWeight: FontWeight.w700,
                   fontSize: 13,
                 ),
               ),
-              backgroundColor: Colors.white,
-              selectedColor: const Color(0xFF2C74B3),
+              backgroundColor: Colors.grey.shade200,
+              selectedColor: const Color(0xFF336B82),
               checkmarkColor: Colors.white,
-              elevation: isSelected ? 4 : 0,
-              shadowColor: const Color(0xFF2C74B3).withAlpha(50),
+              elevation: 0,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(12),
                 side: BorderSide(
                   color: isSelected
-                      ? const Color(0xFF2C74B3)
-                      : Colors.grey.shade200,
+                      ? const Color(0xFF336B82)
+                      : Colors.grey.shade300,
                   width: 1.5,
                 ),
               ),
@@ -514,9 +351,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       );
     }
     return SliverGrid(
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 2,
-        childAspectRatio: 0.72,
+      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+        maxCrossAxisExtent: 150,
+        childAspectRatio: 0.70,
         crossAxisSpacing: 16,
         mainAxisSpacing: 16,
       ),
@@ -574,12 +411,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: Colors.grey.shade200, width: 1),
           boxShadow: [
             BoxShadow(
-              color: const Color(0xFF0A2647).withAlpha(8),
-              blurRadius: 20,
-              offset: const Offset(0, 8),
-            ),
+              color: Colors.black.withAlpha(10),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
+            )
           ],
         ),
         child: Column(
@@ -693,40 +531,40 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text(
-                    title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w900,
-                      color: Color(0xFF0A2647),
-                      letterSpacing: -0.3,
+                    Text(
+                      title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w900,
+                        color: Colors.black87,
+                        letterSpacing: -0.3,
+                      ),
                     ),
-                  ),
                   const SizedBox(height: 2),
-                  Text(
-                    subtitle,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: Colors.grey.shade600,
-                      fontWeight: FontWeight.w500,
+                    Text(
+                      subtitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Colors.grey.shade600,
+                        fontWeight: FontWeight.w500,
+                      ),
                     ),
-                  ),
                   const SizedBox(height: 8),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text(
-                        '${price.toStringAsFixed(0)} F',
-                        style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w900,
-                          color: Color(0xFF2C74B3),
+                        Text(
+                          '${price.toStringAsFixed(0)} F',
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w900,
+                            color: Color(0xFF56B4E9),
+                          ),
                         ),
-                      ),
                       Container(
                         padding: const EdgeInsets.all(5),
                         decoration: BoxDecoration(
@@ -764,12 +602,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.grey.shade200, width: 1),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF0A2647).withAlpha(8),
-            blurRadius: 15,
+            color: Colors.black.withAlpha(10),
+            blurRadius: 10,
             offset: const Offset(0, 4),
-          ),
+          )
         ],
       ),
       child: ClipRRect(
@@ -864,7 +703,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                           style: const TextStyle(
                             fontSize: 14,
                             fontWeight: FontWeight.w800,
-                            color: Color(0xFF0A2647),
+                            color: Colors.black87,
                             height: 1.2,
                           ),
                         ),
@@ -878,7 +717,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                           style: const TextStyle(
                             fontSize: 14,
                             fontWeight: FontWeight.w900,
-                            color: Color(0xFF2C74B3),
+                            color: Color(0xFF56B4E9),
                           ),
                         ),
                         ElevatedButton(
@@ -932,48 +771,64 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   Widget _buildBottomNavigationBar() {
     final isAdminOrEditeur = _secondTabIsFeatureRoadmap(ref);
 
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFF0A2647).withAlpha(10),
-            blurRadius: 20,
-            offset: const Offset(0, -4),
-          ),
-        ],
-      ),
-      child: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: [
-              _buildNavItem(
-                icon: Icons.home_rounded,
-                label: 'Accueil',
-                index: 0,
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.only(left: 20, right: 20, bottom: 16),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(24),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+            child: Container(
+              height: 70,
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.9),
+                borderRadius: BorderRadius.circular(24),
+                border: Border.all(
+                  color: Colors.grey.shade200,
+                  width: 1.5,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.05),
+                    blurRadius: 20,
+                    offset: const Offset(0, 8),
+                  ),
+                ],
               ),
-              // Lecteur : "Catégories". Admin/Éditeur : "À venir" (fonctionnalités
-              // pas encore implémentées, à suivre/proposer).
-              _buildNavItem(
-                icon: isAdminOrEditeur
-                    ? Icons.construction_rounded
-                    : Icons.category_rounded,
-                label: isAdminOrEditeur ? 'À venir' : 'Catégories',
-                index: 1,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  _buildNavItem(
+                    icon: Icons.roofing_outlined,
+                    activeIcon: Icons.roofing_rounded,
+                    label: 'Accueil',
+                    index: 0,
+                  ),
+                  _buildNavItem(
+                    icon: isAdminOrEditeur
+                        ? Icons.rocket_launch_outlined
+                        : Icons.dashboard_customize_outlined,
+                    activeIcon: isAdminOrEditeur
+                        ? Icons.rocket_launch_rounded
+                        : Icons.dashboard_customize_rounded,
+                    label: isAdminOrEditeur ? 'À venir' : 'Catégories',
+                    index: 1,
+                  ),
+                  _buildNavItem(
+                    icon: Icons.mark_chat_unread_outlined,
+                    activeIcon: Icons.mark_chat_unread_rounded,
+                    label: 'Discussions',
+                    index: 2,
+                  ),
+                  _buildNavItem(
+                    icon: Icons.account_circle_outlined,
+                    activeIcon: Icons.account_circle_rounded,
+                    label: 'Profil',
+                    index: 3,
+                  ),
+                ],
               ),
-              _buildNavItem(
-                icon: Icons.forum_rounded,
-                label: 'Conversations',
-                index: 2,
-              ),
-              _buildNavItem(
-                icon: Icons.person_rounded,
-                label: 'Profil',
-                index: 3,
-              ),
-            ],
+            ),
           ),
         ),
       ),
@@ -982,44 +837,64 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   Widget _buildNavItem({
     required IconData icon,
+    required IconData activeIcon,
     required String label,
     required int index,
   }) {
     final isSelected = _selectedIndex == index;
     return GestureDetector(
+      behavior: HitTestBehavior.opaque,
       onTap: () {
         setState(() {
           _selectedIndex = index;
         });
       },
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        duration: const Duration(milliseconds: 250),
+        curve: Curves.easeOutCubic,
+        padding: EdgeInsets.symmetric(
+          horizontal: isSelected ? 16 : 12,
+          vertical: 10,
+        ),
         decoration: BoxDecoration(
           color: isSelected
-              ? const Color(0xFF2C74B3).withAlpha(25)
+              ? const Color(0xFF336B82).withValues(alpha: 0.1)
               : Colors.transparent,
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(16),
         ),
         child: Row(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              icon,
-              color:
-                  isSelected ? const Color(0xFF2C74B3) : Colors.grey.shade400,
-              size: 24,
-            ),
-            if (isSelected) ...[
-              const SizedBox(width: 8),
-              Text(
-                label,
-                style: const TextStyle(
-                  color: Color(0xFF2C74B3),
-                  fontWeight: FontWeight.w700,
-                  fontSize: 13,
-                ),
+            AnimatedSwitcher(
+              duration: const Duration(milliseconds: 250),
+              transitionBuilder: (child, animation) => ScaleTransition(
+                scale: animation,
+                child: child,
               ),
-            ],
+              child: Icon(
+                isSelected ? activeIcon : icon,
+                key: ValueKey<bool>(isSelected),
+                color: isSelected ? const Color(0xFF336B82) : Colors.grey.shade500,
+                size: 26,
+              ),
+            ),
+            AnimatedSize(
+              duration: const Duration(milliseconds: 250),
+              curve: Curves.easeOutCubic,
+              child: isSelected
+                  ? Padding(
+                      padding: const EdgeInsets.only(left: 8),
+                      child: Text(
+                        label,
+                        style: const TextStyle(
+                          color: Color(0xFF336B82),
+                          fontWeight: FontWeight.w800,
+                          fontSize: 14,
+                        ),
+                      ),
+                    )
+                  : const SizedBox.shrink(),
+            ),
           ],
         ),
       ),

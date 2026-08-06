@@ -11,6 +11,7 @@ class PaymentSelectionSheet extends ConsumerWidget {
   final bool isSubscribed;
   final bool isRecharge;
   final bool isSubscription;
+  final bool isResellRight;
   final int? abonnementId;
   final String? journalTitle;
   final VoidCallback? onPaymentSuccess;
@@ -22,6 +23,7 @@ class PaymentSelectionSheet extends ConsumerWidget {
     this.isSubscribed = false,
     this.isRecharge = false,
     this.isSubscription = false,
+    this.isResellRight = false,
     this.abonnementId,
     this.journalTitle,
     this.onPaymentSuccess,
@@ -43,6 +45,17 @@ class PaymentSelectionSheet extends ConsumerWidget {
             children: [
               _buildHeader(context),
               const SizedBox(height: 24),
+              // --- MODE DE TEST ---
+              _buildPaymentOption(
+                context,
+                ref,
+                title: 'Simulation (Test)',
+                subtitle: 'Paiement fictif pour tester (Immédiat)',
+                icon: Icons.bug_report_rounded,
+                color: Colors.green.shade600,
+                type: PaymentMethodType.simulation,
+              ),
+              const SizedBox(height: 12),
               // Mode de paiement Portefeuille
               _buildPaymentOption(
                 context,
@@ -167,6 +180,7 @@ class PaymentSelectionSheet extends ConsumerWidget {
               paymentMethodName: title,
               abonnementId: abonnementId,
               isSubscription: isSubscription,
+              isResellRight: isResellRight,
             ),
           ),
         );

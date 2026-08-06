@@ -2,9 +2,9 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:google_fonts/google_fonts.dart';
 import '../../core/api/api_client.dart';
 import '../../core/services/auth_service.dart';
-
 /// Écran de connexion / inscription pour la stack Riverpod + GoRouter.
 class AuthLoginScreen extends ConsumerStatefulWidget {
   final bool initialRegisterMode;
@@ -23,14 +23,11 @@ class _AuthLoginScreenState extends ConsumerState<AuthLoginScreen> {
   final _nameCtrl = TextEditingController();
   late bool _isRegister;
   bool _obscure = true;
-  bool _obscureConfirm = true;
   bool _isLoading = false;
   bool? _backendOnline;
   String? _serverMessage;
   bool _backendStatusVisible = true;
   Timer? _backendStatusTimer;
-  // Point 1 : consentement explicite aux CGU en mode inscription
-  bool _acceptedTerms = false;
 
   @override
   void initState() {
@@ -83,11 +80,6 @@ class _AuthLoginScreenState extends ConsumerState<AuthLoginScreen> {
 
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
-    // Point 1 : bloquer l'inscription si les CGU ne sont pas acceptées
-    if (_isRegister && !_acceptedTerms) {
-      _showError('Veuillez accepter les Conditions Générales d\'Utilisation pour vous inscrire.');
-      return;
-    }
     setState(() => _isLoading = true);
     try {
       final auth = ref.read(authServiceProvider);
@@ -126,215 +118,349 @@ class _AuthLoginScreenState extends ConsumerState<AuthLoginScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              Color(0xFF0A2647),
-              Color(0xFF144272),
-              Color(0xFF205295),
-              Color(0xFF2C74B3),
-            ],
+      backgroundColor: Colors.transparent,
+      body: Stack(
+        children: [
+          // Image de fond spécifique à cette page
+          Positioned.fill(
+            child: Image.asset(
+              'assets/auth_bg.jpg',
+              fit: BoxFit.cover,
+              errorBuilder: (context, error, stackTrace) => const SizedBox.shrink(),
+            ),
           ),
-        ),
-        child: SafeArea(
-          child: Center(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(24),
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 400),
-                child: Form(
-                  key: _formKey,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Container(
-                        width: 90,
-                        height: 90,
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(22),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withAlpha(40),
-                              blurRadius: 15,
-                              offset: const Offset(0, 6),
+          // Voile sombre pour lisibilité
+          Positioned.fill(
+            child: Container(
+              color: Colors.black.withValues(alpha: 0.3),
+            ),
+          ),
+          SafeArea(
+            child: Center(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 420),
+                  child: Form(
+                    key: _formKey,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // Logo
+                        SizedBox(
+                          width: 100,
+                          height: 100,
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(24),
+                            child: Image.asset(
+                              'assets/app_icon.png',
+                              fit: BoxFit.cover,
                             ),
-                          ],
-                        ),
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(22),
-                          child: Image.asset(
-                            'assets/app_icon.png',
-                            fit: BoxFit.cover,
                           ),
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      Text(
-                        _isRegister ? 'Créer un compte' : 'Connexion',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 28,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                      const SizedBox(height: 32),
-                      if (_isRegister) ...[
-                        _field(
-                          controller: _nameCtrl,
-                          label: 'Nom',
-                          icon: Icons.person_outline,
                         ),
                         const SizedBox(height: 16),
-                      ],
-                      _field(
-                        controller: _emailCtrl,
-                        label: 'Email',
-                        icon: Icons.email_outlined,
-                        keyboardType: TextInputType.emailAddress,
-                        validator: (v) {
-                          if (v == null || v.isEmpty) return 'Email requis';
-                          final emailRegex = RegExp(r'^[\w\-\.]+@([\w\-]+\.)+[\w\-]{2,}$');
-                          if (!emailRegex.hasMatch(v.trim())) return 'Email invalide';
-                          return null;
-                        },
-                      ),
-                      const SizedBox(height: 16),
-                      _field(
-                        controller: _passwordCtrl,
-                        label: 'Mot de passe',
-                        icon: Icons.lock_outline,
-                        obscure: _obscure,
-                        suffix: IconButton(
-                          icon: Icon(
-                            _obscure
-                                ? Icons.visibility_outlined
-                                : Icons.visibility_off_outlined,
-                            color: Colors.grey,
+                        // Textes avec hiérarchie claire
+                        Text(
+                          'Digital Press',
+                          style: GoogleFonts.poppins(
+                            color: Colors.white,
+                            fontSize: 32,
+                            fontWeight: FontWeight.w600, // SemiBold
+                            letterSpacing: 0.5,
                           ),
-                          onPressed: () => setState(() => _obscure = !_obscure),
                         ),
-                        validator: (v) {
-                          if (v == null || v.isEmpty) {
-                            return 'Mot de passe requis';
-                          }
-                          if (v.length < 6) {
-                            return 'Minimum 6 caractères';
-                          }
-                          return null;
-                        },
-                      ),
-                      // Point 1 : confirmation de mot de passe + CGU en mode inscription
-                      if (_isRegister) ...[
-                        const SizedBox(height: 16),
-                        _field(
-                          controller: _passwordConfirmCtrl,
-                          label: 'Confirmer le mot de passe',
-                          icon: Icons.lock_reset_outlined,
-                          obscure: _obscureConfirm,
-                          suffix: IconButton(
-                            icon: Icon(
-                              _obscureConfirm
-                                  ? Icons.visibility_outlined
-                                  : Icons.visibility_off_outlined,
-                              color: Colors.grey,
-                            ),
-                            onPressed: () => setState(() => _obscureConfirm = !_obscureConfirm),
+                        const SizedBox(height: 4),
+                        Text(
+                          'votre kiosque numérique',
+                          style: GoogleFonts.poppins(
+                            color: const Color(0xFFE5E7EB), // Gris clair pour le contraste
+                            fontSize: 16,
+                            fontWeight: FontWeight.w400,
+                            letterSpacing: 0.2,
                           ),
+                          textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: 32), // Interface plus aérée
+                        
+                        // Titre d'action
+                        Align(
+                          alignment: Alignment.center,
+                          child: Text(
+                            _isRegister ? "S'inscrire" : 'Connexion',
+                            style: GoogleFonts.poppins(
+                              color: Colors.white,
+                              fontSize: 28,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 24),
+                        
+                        if (_isRegister) ...[
+                          _field(
+                            controller: _nameCtrl,
+                            label: 'Nom complet',
+                            icon: Icons.person_outline,
+                          ),
+                          const SizedBox(height: 16),
+                        ],
+                        _field(
+                          controller: _emailCtrl,
+                          label: 'Email',
+                          icon: Icons.email_outlined,
+                          keyboardType: TextInputType.emailAddress,
                           validator: (v) {
-                            if (v == null || v.isEmpty) return 'Confirmez votre mot de passe';
-                            if (v != _passwordCtrl.text) return 'Les mots de passe ne correspondent pas';
+                            if (v == null || v.isEmpty) return 'L\'adresse e-mail est requise';
+                            if (!v.contains('@')) return 'L\'adresse e-mail n\'est pas valide';
                             return null;
                           },
                         ),
-                        const SizedBox(height: 12),
-                        // Checkbox CGU obligatoire
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.center,
-                          children: [
-                            Checkbox(
-                              value: _acceptedTerms,
-                              onChanged: (v) => setState(() => _acceptedTerms = v ?? false),
-                              activeColor: Colors.white,
-                              checkColor: const Color(0xFF0A2647),
-                              side: const BorderSide(color: Colors.white70),
+                        const SizedBox(height: 16),
+                        _field(
+                          controller: _passwordCtrl,
+                          label: 'Mot de passe',
+                          icon: Icons.lock_outline,
+                          obscure: _obscure,
+                          suffix: IconButton(
+                            icon: Icon(
+                              _obscure
+                                  ? Icons.visibility_off_outlined
+                                  : Icons.visibility_outlined,
+                              color: const Color(0xFFE5E7EB),
+                              size: 22,
                             ),
-                            Expanded(
+                            onPressed: () => setState(() => _obscure = !_obscure),
+                          ),
+                          validator: (v) {
+                            if (v == null || v.isEmpty) {
+                              return 'Le mot de passe est requis';
+                            }
+                            if (v.length < 6) {
+                              return 'Au moins 6 caractères';
+                            }
+                            return null;
+                          },
+                        ),
+                        if (_isRegister) ...[
+                          const SizedBox(height: 16),
+                          _field(
+                            controller: _passwordConfirmCtrl,
+                            label: 'Confirmer le mot de passe',
+                            icon: Icons.lock_outline,
+                            obscure: _obscure,
+                            suffix: IconButton(
+                              icon: Icon(
+                                _obscure
+                                    ? Icons.visibility_off_outlined
+                                    : Icons.visibility_outlined,
+                                color: const Color(0xFFE5E7EB),
+                                size: 22,
+                              ),
+                              onPressed: () => setState(() => _obscure = !_obscure),
+                            ),
+                            validator: (v) {
+                              if (v == null || v.isEmpty) {
+                                return 'La confirmation est requise';
+                              }
+                              if (v != _passwordCtrl.text) {
+                                return 'Les mots de passe ne correspondent pas';
+                              }
+                              return null;
+                            },
+                          ),
+                        ],
+                        
+                        if (!_isRegister) ...[
+                          const SizedBox(height: 12),
+                          Align(
+                            alignment: Alignment.centerRight,
+                            child: TextButton(
+                              onPressed: () =>
+                                  context.push('/auth/forgot-password'),
+                              style: TextButton.styleFrom(
+                                foregroundColor: const Color(0xFFE5E7EB),
+                                padding: EdgeInsets.zero,
+                                minimumSize: Size.zero,
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              ),
                               child: Text(
-                                'J\'accepte les Conditions Générales d\'Utilisation et la Politique de confidentialité',
-                                style: const TextStyle(color: Colors.white70, fontSize: 12),
+                                'Mot de passe oublié ?',
+                                style: GoogleFonts.poppins(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w500,
+                                ),
                               ),
                             ),
-                          ],
-                        ),
-                      ],
-                      const SizedBox(height: 24),
-                      SizedBox(
-                        width: double.infinity,
-                        height: 52,
-                        child: ElevatedButton(
-                          onPressed: _isLoading ? null : _submit,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.white,
-                            foregroundColor: const Color(0xFF0A2647),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(14),
-                            ),
                           ),
-                          child: _isLoading
-                              ? const SizedBox(
-                                  width: 24,
-                                  height: 24,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
+                        ],
+                        
+                        const SizedBox(height: 24),
+                        
+                        // Bouton principal modernisé
+                        Container(
+                          width: double.infinity,
+                          height: 56,
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF336B82), // Teal/slate blue solide correspondant à l'image
+                            borderRadius: BorderRadius.circular(30),
+                          ),
+                          child: ElevatedButton(
+                            onPressed: _isLoading ? null : _submit,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.transparent,
+                              shadowColor: Colors.transparent,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(30),
+                              ),
+                            ),
+                            child: _isLoading
+                                ? const SizedBox(
+                                    width: 24,
+                                    height: 24,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.white,
+                                    ),
+                                  )
+                                : Text(
+                                    _isRegister ? "S'inscrire" : 'Se connecter',
+                                    style: GoogleFonts.poppins(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.w600,
+                                      fontSize: 18,
+                                      letterSpacing: 0.5,
+                                    ),
                                   ),
-                                )
-                              : Text(
-                                  _isRegister ? "S'inscrire" : 'Se connecter',
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.w700,
-                                    fontSize: 16,
+                          ),
+                        ),
+                        
+                        if (_isRegister) ...[
+                          const SizedBox(height: 24),
+                          
+                          // Séparateur
+                          Row(
+                            children: [
+                              const Expanded(child: Divider(color: Colors.white24, thickness: 1)),
+                              Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 16),
+                                child: Text(
+                                  'ou inscrivez-vous avec',
+                                  style: GoogleFonts.poppins(
+                                    color: const Color(0xFFE5E7EB),
+                                    fontSize: 14,
                                   ),
                                 ),
-                        ),
-                      ),
-                      if (!_isRegister) ...[
-                        const SizedBox(height: 12),
+                              ),
+                              const Expanded(child: Divider(color: Colors.white24, thickness: 1)),
+                            ],
+                          ),
+                          
+                          const SizedBox(height: 24),
+                          
+                          // Boutons sociaux
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              _buildSocialButton('Google', _isRegister),
+                              const SizedBox(width: 32),
+                              _buildSocialButton('Facebook', _isRegister),
+                            ],
+                          ),
+                          
+                          const SizedBox(height: 32),
+                        ] else ...[
+                          const SizedBox(height: 32),
+                        ],
+                        
+                        // Lien vers l'autre mode
                         TextButton(
                           onPressed: () =>
-                              context.push('/auth/forgot-password'),
-                          child: const Text(
-                            'Mot de passe oublié ?',
-                            style: TextStyle(color: Colors.white70),
+                              setState(() => _isRegister = !_isRegister),
+                          style: TextButton.styleFrom(
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                          child: RichText(
+                            text: TextSpan(
+                              style: GoogleFonts.poppins(color: const Color(0xFFE5E7EB), fontSize: 15),
+                              children: [
+                                TextSpan(
+                                  text: _isRegister ? 'Déjà inscrit ? ' : 'Pas encore inscrit ? ',
+                                ),
+                                TextSpan(
+                                  text: _isRegister ? 'Connectez-vous' : "S'inscrire",
+                                  style: GoogleFonts.poppins(
+                                    fontWeight: FontWeight.w700,
+                                    color: Colors.white, // Blanc gras comme dans l'image
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
                         ),
+                        const SizedBox(height: 16),
+                        _backendStatusBanner(),
                       ],
-                      const SizedBox(height: 8),
-                      TextButton(
-                        onPressed: () =>
-                            setState(() => _isRegister = !_isRegister),
-                        child: Text(
-                          _isRegister
-                              ? 'Déjà un compte ? Se connecter'
-                              : 'Pas de compte ? S\'inscrire',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      _backendStatusBanner(),
-                    ],
+                    ),
                   ),
                 ),
               ),
             ),
           ),
-        ),
+        ],
       ),
+    );
+  }
+
+  Widget _buildSocialButton(String type, bool isRegister) {
+    final isGoogle = type == 'Google';
+    return Column(
+      children: [
+        InkWell(
+          onTap: () {},
+          borderRadius: BorderRadius.circular(30),
+          child: Container(
+            width: 60,
+            height: 60,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              // ignore: deprecated_member_use
+              color: Colors.white.withValues(alpha: 0.12), // Fond blanc semi-transparent
+              // ignore: deprecated_member_use
+              border: Border.all(color: Colors.white.withValues(alpha: 0.2), width: 1),
+            ),
+            child: Center(
+              child: isGoogle
+                  ? Image.network(
+                      'https://img.icons8.com/color/48/000000/google-logo.png',
+                      width: 28,
+                      height: 28,
+                      errorBuilder: (context, error, stackTrace) => const Text(
+                        'G',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 26,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    )
+                  : const Icon(Icons.facebook, color: Color(0xFF1877F2), size: 32),
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        Text(
+          isRegister ? 'S\'inscrire avec\n$type' : 'Connexion avec\n$type',
+          textAlign: TextAlign.center,
+          style: GoogleFonts.poppins(
+            color: const Color(0xFFE5E7EB),
+            fontSize: 13,
+            fontWeight: FontWeight.w400,
+          ),
+        ),
+      ],
     );
   }
 
@@ -355,14 +481,15 @@ class _AuthLoginScreenState extends ConsumerState<AuthLoginScreen> {
     final online = _backendOnline!;
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
         color: online
-            ? const Color.fromRGBO(6, 214, 160, 0.2)
-            : const Color.fromRGBO(230, 57, 70, 0.2),
-        borderRadius: BorderRadius.circular(10),
+            ? const Color.fromRGBO(6, 214, 160, 0.15)
+            : const Color.fromRGBO(230, 57, 70, 0.15),
+        borderRadius: BorderRadius.circular(12),
         border: Border.all(
           color: online ? const Color(0xFF06D6A0) : const Color(0xFFE63946),
+          width: 1,
         ),
       ),
       child: Row(
@@ -370,21 +497,21 @@ class _AuthLoginScreenState extends ConsumerState<AuthLoginScreen> {
           Icon(
             online ? Icons.cloud_done_outlined : Icons.cloud_off_outlined,
             color: Colors.white,
-            size: 18,
+            size: 20,
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: 12),
           Expanded(
             child: Text(
               buildHealthStatusMessage(
                 isOnline: online,
                 serverMessage: _serverMessage,
               ),
-              style: const TextStyle(color: Colors.white, fontSize: 12),
+              style: GoogleFonts.poppins(color: Colors.white, fontSize: 13),
             ),
           ),
           if (!online)
             IconButton(
-              icon: const Icon(Icons.refresh, color: Colors.white, size: 18),
+              icon: const Icon(Icons.refresh, color: Colors.white, size: 20),
               onPressed: _checkBackend,
               padding: EdgeInsets.zero,
               constraints: const BoxConstraints(),
@@ -408,15 +535,42 @@ class _AuthLoginScreenState extends ConsumerState<AuthLoginScreen> {
       keyboardType: keyboardType,
       obscureText: obscure,
       validator: validator,
-      style: const TextStyle(fontWeight: FontWeight.w500),
+      style: GoogleFonts.poppins(fontWeight: FontWeight.w500, color: Colors.white, fontSize: 15),
       decoration: InputDecoration(
-        labelText: label,
-        prefixIcon: Icon(icon, color: const Color(0xFF2C74B3)),
+        hintText: label,
+        // ignore: deprecated_member_use
+        hintStyle: GoogleFonts.poppins(color: const Color(0xFFE5E7EB).withValues(alpha: 0.8), fontSize: 14),
+        prefixIcon: Icon(icon, color: const Color(0xFFE5E7EB), size: 22),
         suffixIcon: suffix,
         filled: true,
-        fillColor: Colors.white,
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+        // ignore: deprecated_member_use
+        fillColor: Colors.black.withValues(alpha: 0.15), // Fond très légèrement sombre/transparent
+        contentPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 18),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          // ignore: deprecated_member_use
+          borderSide: BorderSide(color: const Color(0xFF56B4E9).withValues(alpha: 0.6), width: 1.5),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          // ignore: deprecated_member_use
+          borderSide: BorderSide(color: const Color(0xFF56B4E9).withValues(alpha: 0.6), width: 1.5), // Ligne bleue lumineuse constante
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: const BorderSide(color: Color(0xFF56B4E9), width: 2.0), // Bleu plus vif au focus
+        ),
+        errorStyle: GoogleFonts.poppins(color: const Color(0xFFEF4444), fontWeight: FontWeight.w500, fontSize: 12),
+        errorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: const BorderSide(color: Color(0xFFEF4444), width: 1.2),
+        ),
+        focusedErrorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: const BorderSide(color: Color(0xFFEF4444), width: 2),
+        ),
       ),
     );
   }
 }
+

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'dart:io';
 import '../../core/services/publication_service.dart';
 import '../../model/publication.dart';
@@ -22,6 +23,7 @@ class _EditArticleScreenState extends ConsumerState<EditArticleScreen> {
   late TextEditingController summaryController;
   late TextEditingController contentController;
   late TextEditingController priceController;
+  late TextEditingController resellPriceController;
   late TextEditingController tagsController;
   late TextEditingController coverUrlController;
 
@@ -31,8 +33,8 @@ class _EditArticleScreenState extends ConsumerState<EditArticleScreen> {
 
   // Couverture : Image OU Vidéo
   String _coverType = 'image'; // 'image' ou 'video'
-  File? selectedCoverImageFile;
-  File? selectedCoverVideoFile;
+  PlatformFile? selectedCoverImageFile;
+  PlatformFile? selectedCoverVideoFile;
   late String _coverVideoUrl;
 
   bool _isUploading = false;
@@ -44,6 +46,7 @@ class _EditArticleScreenState extends ConsumerState<EditArticleScreen> {
     summaryController = TextEditingController(text: widget.publication.description);
     contentController = TextEditingController(text: widget.publication.content);
     priceController = TextEditingController(text: widget.publication.prix.toStringAsFixed(0));
+    resellPriceController = TextEditingController(text: widget.publication.resellPrice?.toStringAsFixed(0) ?? '');
     tagsController = TextEditingController(text: widget.publication.tags.join(', '));
     coverUrlController = TextEditingController(text: widget.publication.coverImage);
 
@@ -67,6 +70,7 @@ class _EditArticleScreenState extends ConsumerState<EditArticleScreen> {
     summaryController.dispose();
     contentController.dispose();
     priceController.dispose();
+    resellPriceController.dispose();
     tagsController.dispose();
     coverUrlController.dispose();
     categoryNameController.dispose();
@@ -74,52 +78,27 @@ class _EditArticleScreenState extends ConsumerState<EditArticleScreen> {
   }
 
   Future<void> _pickCoverImage() async {
-    final result = await FilePicker.platform.pickFiles(type: FileType.image);
-    if (result != null && result.files.single.path != null) {
-      final file = result.files.single;
-      setState(() => _isUploading = true);
-      try {
-        final url = await ref
-            .read(publicationServiceProvider)
-            .uploadMedia(file.path!, file.name);
-        if (mounted) {
-          setState(() {
-            selectedCoverImageFile = File(file.path!);
-            coverUrlController.text = url;
-          });
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Image de couverture uploadée ✓'),
-              backgroundColor: Colors.green,
-            ),
-          );
-        }
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-                content: Text('Erreur upload image: $e'),
-                backgroundColor: Colors.red),
-          );
-        }
-      } finally {
-        if (mounted) setState(() => _isUploading = false);
-      }
+    final result = await FilePicker.platform.pickFiles(type: FileType.image, withData: kIsWeb);
+    if (result != null && result.files.isNotEmpty) {
+      setState(() {
+        selectedCoverImageFile = result.files.single;
+        coverUrlController.text = result.files.single.name;
+      });
     }
   }
 
   Future<void> _pickCoverVideo() async {
-    final result = await FilePicker.platform.pickFiles(type: FileType.video);
-    if (result != null && result.files.single.path != null) {
+    final result = await FilePicker.platform.pickFiles(type: FileType.video, withData: kIsWeb);
+    if (result != null && result.files.isNotEmpty) {
       final file = result.files.single;
       setState(() => _isUploading = true);
       try {
         final url = await ref
             .read(publicationServiceProvider)
-            .uploadMedia(file.path!, file.name);
+            .uploadMedia(file.name, filePath: file.path, bytes: file.bytes);
         if (mounted) {
           setState(() {
-            selectedCoverVideoFile = File(file.path!);
+            selectedCoverVideoFile = file;
             _coverVideoUrl = url;
           });
           ScaffoldMessenger.of(context).showSnackBar(
@@ -167,6 +146,7 @@ class _EditArticleScreenState extends ConsumerState<EditArticleScreen> {
           'pdf', 'txt',
         ],
         allowMultiple: true,
+        withData: kIsWeb,
       );
 
       if (result == null || result.files.isEmpty) return;
@@ -175,8 +155,6 @@ class _EditArticleScreenState extends ConsumerState<EditArticleScreen> {
       final service = ref.read(publicationServiceProvider);
 
       for (final file in result.files) {
-        if (file.path == null) continue;
-        final filePath = file.path!;
         final fileName = file.name;
         final extension = fileName.split('.').last.toLowerCase();
 
@@ -184,7 +162,13 @@ class _EditArticleScreenState extends ConsumerState<EditArticleScreen> {
 
         if (extension == 'txt') {
           try {
-            contentToAdd = '${await File(filePath).readAsString()}\n\n---\n\n';
+            String textContent = '';
+            if (file.bytes != null) {
+               textContent = String.fromCharCodes(file.bytes!);
+            } else if (!kIsWeb && file.path != null) {
+               textContent = '📄 [$fileName] (Text content attached)';
+            }
+            contentToAdd = '$textContent\n\n---\n\n';
           } catch (_) {
             contentToAdd = '📄 [$fileName]\n\n---\n\n';
           }
@@ -196,7 +180,7 @@ class _EditArticleScreenState extends ConsumerState<EditArticleScreen> {
 
         final String url;
         try {
-          url = await service.uploadMedia(filePath, fileName);
+          url = await service.uploadMedia(fileName, filePath: file.path, bytes: file.bytes);
         } catch (e) {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
@@ -263,6 +247,7 @@ class _EditArticleScreenState extends ConsumerState<EditArticleScreen> {
       'category_name': categoryName,
       'pub_type': selectedType,
       'prix': isFree ? 0.0 : double.parse(priceController.text.trim()),
+      'resell_price': resellPriceController.text.trim().isNotEmpty ? double.parse(resellPriceController.text.trim()) : null,
       'is_free': isFree,
       'tags': tagsController.text.trim(),
       'cover_image': _coverType == 'image' ? coverUrlController.text.trim() : '',
@@ -333,7 +318,11 @@ class _EditArticleScreenState extends ConsumerState<EditArticleScreen> {
                   children: [
                     TextFormField(
                       controller: titleController,
-                      decoration: _inputDecoration('Titre de la publication', Icons.title),
+                      readOnly: widget.publication.originalPublicationId != null,
+                      decoration: _inputDecoration('Titre de la publication', Icons.title).copyWith(
+                        filled: widget.publication.originalPublicationId != null,
+                        fillColor: widget.publication.originalPublicationId != null ? Colors.grey.shade200 : const Color(0xFFF8FAFC),
+                      ),
                       validator: (value) => value == null || value.isEmpty ? 'Champ requis' : null,
                     ),
                     const SizedBox(height: 14),
@@ -450,17 +439,27 @@ class _EditArticleScreenState extends ConsumerState<EditArticleScreen> {
                           Expanded(
                             child: TextFormField(
                               controller: coverUrlController,
-                              decoration: _inputDecoration('URL de l\'image de couverture', Icons.image_outlined),
+                              readOnly: widget.publication.originalPublicationId != null,
+                              decoration: _inputDecoration('URL de l\'image de couverture', Icons.image_outlined).copyWith(
+                                filled: widget.publication.originalPublicationId != null,
+                                fillColor: widget.publication.originalPublicationId != null ? Colors.grey.shade200 : const Color(0xFFF8FAFC),
+                              ),
                               validator: (value) => value == null || value.isEmpty ? 'Champ requis' : null,
                             ),
                           ),
                           const SizedBox(width: 10),
-                          IconButton.filledTonal(icon: const Icon(Icons.photo_library_outlined), tooltip: 'Choisir une image', onPressed: _pickCoverImage),
+                          if (widget.publication.originalPublicationId == null)
+                            IconButton.filledTonal(icon: const Icon(Icons.photo_library_outlined), tooltip: 'Choisir une image', onPressed: _pickCoverImage),
                         ],
                       ),
                       if (selectedCoverImageFile != null) ...[
                         const SizedBox(height: 8),
-                        ClipRRect(borderRadius: BorderRadius.circular(10), child: Image.file(selectedCoverImageFile!, height: 120, width: double.infinity, fit: BoxFit.cover)),
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(10), 
+                          child: selectedCoverImageFile!.bytes != null
+                              ? Image.memory(selectedCoverImageFile!.bytes!, height: 120, width: double.infinity, fit: BoxFit.cover)
+                              : Image.file(File(selectedCoverImageFile!.path!), height: 120, width: double.infinity, fit: BoxFit.cover),
+                        ),
                       ],
                     ] else ...[
                       Row(
@@ -496,12 +495,33 @@ class _EditArticleScreenState extends ConsumerState<EditArticleScreen> {
 
                     if (!isFree) ...[
                       const SizedBox(height: 8),
-                      TextFormField(
-                        controller: priceController,
-                        keyboardType: TextInputType.number,
-                        inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                        decoration: _inputDecoration('Prix individuel (FCFA)', Icons.payments_outlined),
-                        validator: (v) { if (v == null || v.isEmpty) return 'Requis'; if (double.tryParse(v) == null) return 'Nombre invalide'; return null; },
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextFormField(
+                              controller: priceController,
+                              keyboardType: TextInputType.number,
+                              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                              decoration: _inputDecoration('Prix individuel (FCFA)', Icons.payments_outlined),
+                              validator: (v) { if (v == null || v.isEmpty) return 'Requis'; if (double.tryParse(v) == null) return 'Nombre invalide'; return null; },
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: TextFormField(
+                              controller: resellPriceController,
+                              keyboardType: TextInputType.number,
+                              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                              decoration: _inputDecoration('Prix droit de revente', Icons.handshake_outlined).copyWith(
+                                helperText: 'Optionnel',
+                              ),
+                              validator: (v) {
+                                if (v != null && v.isNotEmpty && double.tryParse(v) == null) return 'Invalide';
+                                return null;
+                              },
+                            ),
+                          ),
+                        ],
                       ),
                     ],
 
@@ -512,7 +532,11 @@ class _EditArticleScreenState extends ConsumerState<EditArticleScreen> {
                     TextFormField(
                       controller: summaryController,
                       maxLines: 3,
-                      decoration: _inputDecoration('Résumé court / Description', Icons.short_text_rounded),
+                      readOnly: widget.publication.originalPublicationId != null,
+                      decoration: _inputDecoration('Résumé court / Description', Icons.short_text_rounded).copyWith(
+                        filled: widget.publication.originalPublicationId != null,
+                        fillColor: widget.publication.originalPublicationId != null ? Colors.grey.shade200 : const Color(0xFFF8FAFC),
+                      ),
                       validator: (value) => value == null || value.isEmpty ? 'Champ requis' : null,
                     ),
                     const SizedBox(height: 14),
@@ -540,18 +564,22 @@ class _EditArticleScreenState extends ConsumerState<EditArticleScreen> {
                           controller: contentController,
                           minLines: 10,
                           maxLines: 20,
+                          readOnly: widget.publication.originalPublicationId != null,
                           decoration: _inputDecoration('Contenu complet de l\'article (Markdown)', Icons.description).copyWith(
                             hintText: 'Rédigez le contenu… Utilisez 📎 pour joindre images, PDF ou vidéos.',
                             helperText: 'Les fichiers joints sont uploadés sur le serveur et insérés en tant que liens Markdown.',
                             helperMaxLines: 2,
                             contentPadding: const EdgeInsets.fromLTRB(48, 16, 48, 16),
+                            filled: widget.publication.originalPublicationId != null,
+                            fillColor: widget.publication.originalPublicationId != null ? Colors.grey.shade200 : const Color(0xFFF8FAFC),
                           ),
                           validator: (value) => value == null || value.isEmpty ? 'Champ requis' : null,
                         ),
-                        Positioned(
-                          top: 8,
-                          right: 8,
-                          child: Tooltip(
+                        if (widget.publication.originalPublicationId == null)
+                          Positioned(
+                            top: 8,
+                            right: 8,
+                            child: Tooltip(
                             message: 'Joindre image, PDF ou vidéo\n(uploadé sur le serveur)',
                             child: IconButton(
                               icon: _isUploading

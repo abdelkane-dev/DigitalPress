@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
+import 'package:url_launcher/url_launcher.dart';
+import '../core/utils/platform_helper.dart';
 
 class ShortVideoPlayer extends StatefulWidget {
   final String videoUrl;
@@ -16,15 +18,21 @@ class ShortVideoPlayer extends StatefulWidget {
 }
 
 class _ShortVideoPlayerState extends State<ShortVideoPlayer> {
-  late VideoPlayerController _controller;
+  VideoPlayerController? _controller;
   bool _isInitialized = false;
   bool _hasError = false;
   bool _showControls = true;
 
+  /// Vrai si la plateforme ne supporte pas video_player.
+  bool get _unsupportedPlatform => !PlatformHelper.supportsVideoPlayer;
+
+
   @override
   void initState() {
     super.initState();
-    _initializePlayer();
+    if (!_unsupportedPlatform) {
+      _initializePlayer();
+    }
   }
 
   void _initializePlayer() {
@@ -44,7 +52,7 @@ class _ShortVideoPlayerState extends State<ShortVideoPlayer> {
         }
       });
 
-    _controller.addListener(() {
+    _controller!.addListener(() {
       if (mounted) {
         setState(() {});
       }
@@ -53,19 +61,21 @@ class _ShortVideoPlayerState extends State<ShortVideoPlayer> {
 
   @override
   void dispose() {
-    _controller.dispose();
+    _controller?.dispose();
     super.dispose();
   }
 
   void _togglePlay() {
+    final ctrl = _controller;
+    if (ctrl == null) return;
     setState(() {
-      if (_controller.value.isPlaying) {
-        _controller.pause();
+      if (ctrl.value.isPlaying) {
+        ctrl.pause();
       } else {
-        _controller.play();
+        ctrl.play();
         // Hide controls after 2 seconds
         Future.delayed(const Duration(seconds: 2), () {
-          if (mounted && _controller.value.isPlaying) {
+          if (mounted && ctrl.value.isPlaying) {
             setState(() {
               _showControls = false;
             });
@@ -76,13 +86,63 @@ class _ShortVideoPlayerState extends State<ShortVideoPlayer> {
   }
 
   void _toggleMute() {
+    final ctrl = _controller;
+    if (ctrl == null) return;
     setState(() {
-      _controller.setVolume(_controller.value.volume == 0 ? 1 : 0);
+      ctrl.setVolume(ctrl.value.volume == 0 ? 1 : 0);
     });
+  }
+
+  /// Construit le widget de remplacement pour les plateformes
+  /// qui ne supportent pas video_player (Windows, Linux).
+  Widget _buildDesktopFallback() {
+    return Container(
+      height: 200,
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: Colors.grey.shade900,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(Icons.videocam_rounded, color: Color(0xFF2C74B3), size: 48),
+          const SizedBox(height: 12),
+          Text(
+            widget.title ?? 'Vidéo',
+            style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'La lecture vidéo n\'est pas disponible sur cette plateforme.',
+            style: TextStyle(color: Colors.white54, fontSize: 12),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 16),
+          ElevatedButton.icon(
+            onPressed: () {
+              launchUrl(Uri.parse(widget.videoUrl), mode: LaunchMode.externalApplication);
+            },
+            icon: const Icon(Icons.open_in_browser_rounded),
+            label: const Text('Ouvrir dans le navigateur'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF2C74B3),
+              foregroundColor: Colors.white,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
+    // Fallback sur les plateformes sans video_player
+    if (_unsupportedPlatform) {
+      return _buildDesktopFallback();
+    }
+
     if (_hasError) {
       return Container(
         height: 200,
@@ -121,8 +181,9 @@ class _ShortVideoPlayerState extends State<ShortVideoPlayer> {
       );
     }
 
-    final isMuted = _controller.value.volume == 0;
-    final isPlaying = _controller.value.isPlaying;
+    final ctrl = _controller!;
+    final isMuted = ctrl.value.volume == 0;
+    final isPlaying = ctrl.value.isPlaying;
 
     return GestureDetector(
       onTap: () {
@@ -144,11 +205,11 @@ class _ShortVideoPlayerState extends State<ShortVideoPlayer> {
         ),
         clipBehavior: Clip.antiAlias,
         child: AspectRatio(
-          aspectRatio: _controller.value.aspectRatio,
+          aspectRatio: ctrl.value.aspectRatio,
           child: Stack(
             alignment: Alignment.bottomCenter,
             children: [
-              VideoPlayer(_controller),
+              VideoPlayer(ctrl),
 
               // Title overlay (top)
               if (widget.title != null && _showControls)
@@ -211,7 +272,7 @@ class _ShortVideoPlayerState extends State<ShortVideoPlayer> {
                       children: [
                         // Progress slider
                         VideoProgressIndicator(
-                          _controller,
+                          ctrl,
                           allowScrubbing: true,
                           colors: const VideoProgressColors(
                             playedColor: Color(0xFF2C74B3),
@@ -224,7 +285,7 @@ class _ShortVideoPlayerState extends State<ShortVideoPlayer> {
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
                             Text(
-                              '${_printDuration(_controller.value.position)} / ${_printDuration(_controller.value.duration)}',
+                              '${_printDuration(ctrl.value.position)} / ${_printDuration(ctrl.value.duration)}',
                               style: const TextStyle(
                                 color: Colors.white70,
                                 fontSize: 12,

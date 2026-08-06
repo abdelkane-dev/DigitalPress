@@ -58,6 +58,8 @@ class Publication(models.Model):
     file_url = models.URLField(blank=True)
     video_url = models.URLField(blank=True)
     prix = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    resell_price = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True, help_text="Prix pour l'achat des droits de revente par un autre média")
+    original_publication = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True, related_name='resold_versions')
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='published')
     pub_type = models.CharField(max_length=20, choices=TYPE_CHOICES, default='article')
     is_free = models.BooleanField(default=False)
@@ -77,8 +79,6 @@ class Publication(models.Model):
 
     @property
     def tags_list(self):
-        if not self.tags:
-            return []
         return [t.strip() for t in self.tags.split(',') if t.strip()]
 
 
@@ -223,3 +223,22 @@ class Favorite(models.Model):
 
     def __str__(self):
         return f"{self.reader.username} ♥ {self.publication.title}"
+
+
+class CollaborationRight(models.Model):
+    buyer_publisher = models.ForeignKey(
+        'accounts.User', on_delete=models.CASCADE, related_name='collaboration_rights_bought', limit_choices_to={'role': 'publisher'}
+    )
+    original_publication = models.ForeignKey(
+        Publication, on_delete=models.CASCADE, related_name='collaboration_rights_sold'
+    )
+    price_paid = models.DecimalField(max_digits=10, decimal_places=2)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = _('Droit de collaboration')
+        verbose_name_plural = _('Droits de collaboration')
+        unique_together = ['buyer_publisher', 'original_publication']
+
+    def __str__(self):
+        return f"{self.buyer_publisher.username} - Droit sur {self.original_publication.title}"

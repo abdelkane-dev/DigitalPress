@@ -17,9 +17,16 @@ class _ManagePlansScreenState extends ConsumerState<ManagePlansScreen> {
     final plansState = ref.watch(publisherPlansListProvider);
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFC),
+      backgroundColor: const Color(0xFFFFF7ED),
       appBar: AppBar(
-        title: const Text('Mes Plans d\'abonnement'),
+        backgroundColor: const Color(0xFFEA580C),
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        iconTheme: const IconThemeData(color: Colors.white),
+        title: const Text(
+          'Abonnements',
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 20),
+        ),
         centerTitle: true,
         actions: [
           IconButton(
@@ -65,7 +72,7 @@ class _ManagePlansScreenState extends ConsumerState<ManagePlansScreen> {
           }
 
           return ListView.separated(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.only(left: 16, right: 16, top: 16, bottom: 100),
             itemCount: plans.length,
             separatorBuilder: (_, __) => const SizedBox(height: 14),
             itemBuilder: (context, index) {
@@ -91,32 +98,51 @@ class _ManagePlansScreenState extends ConsumerState<ManagePlansScreen> {
           ),
         ),
       ),
-      floatingActionButton: plansState.hasValue && plansState.value!.isNotEmpty
-          ? FloatingActionButton.extended(
-              onPressed: () => _showPlanDialog(context),
-              backgroundColor: Colors.orange.shade700,
-              foregroundColor: Colors.white,
-              icon: const Icon(Icons.add_rounded),
-              label: const Text('Nouveau Plan'),
+      bottomNavigationBar: plansState.hasValue && plansState.value!.isNotEmpty
+          ? Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 10, offset: const Offset(0, -5))],
+              ),
+              child: SafeArea(
+                child: ElevatedButton.icon(
+                  onPressed: () => _showPlanDialog(context),
+                  icon: const Icon(Icons.add_rounded),
+                  label: const Text('Créer un nouveau plan', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFEA580C),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                  ),
+                ),
+              ),
             )
           : null,
     );
   }
 
   Widget _buildPlanCard(BuildContext context, AbonnementPlan plan) {
+    final bool isActive = plan.isActive;
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
+        gradient: isActive ? const LinearGradient(
+          colors: [Color(0xFFFFF7ED), Colors.white],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ) : null,
+        color: isActive ? null : Colors.white,
+        borderRadius: BorderRadius.circular(24),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF0A2647).withAlpha(8),
-            blurRadius: 15,
-            offset: const Offset(0, 4),
+            color: isActive ? const Color(0xFFEA580C).withValues(alpha: 0.15) : Colors.black.withValues(alpha: 0.05),
+            blurRadius: 20,
+            offset: const Offset(0, 8),
           ),
         ],
         border: Border.all(
-          color: plan.isActive ? Colors.green.withAlpha(20) : Colors.grey.withAlpha(40),
+          color: isActive ? const Color(0xFFEA580C).withValues(alpha: 0.5) : Colors.grey.withValues(alpha: 0.2),
           width: 1.5,
         ),
       ),
@@ -138,7 +164,7 @@ class _ManagePlansScreenState extends ConsumerState<ManagePlansScreen> {
                         style: const TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.bold,
-                          color: Color(0xFF0A2647),
+                          color: Colors.black87,
                         ),
                       ),
                       const SizedBox(height: 4),
@@ -157,21 +183,21 @@ class _ManagePlansScreenState extends ConsumerState<ManagePlansScreen> {
                       style: const TextStyle(
                         fontSize: 20,
                         fontWeight: FontWeight.w900,
-                        color: Color(0xFF2C74B3),
+                        color: Color(0xFFEA580C),
                       ),
                     ),
                     const SizedBox(height: 4),
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                       decoration: BoxDecoration(
-                        color: plan.isActive ? Colors.green.shade50 : Colors.grey.shade100,
-                        borderRadius: BorderRadius.circular(12),
+                        color: isActive ? const Color(0xFFEA580C) : Colors.grey.shade100,
+                        borderRadius: BorderRadius.circular(20),
                       ),
                       child: Text(
-                        plan.isActive ? 'Actif' : 'Inactif',
+                        isActive ? 'Actif' : 'Inactif',
                         style: TextStyle(
-                          color: plan.isActive ? Colors.green.shade700 : Colors.grey.shade600,
-                          fontSize: 11,
+                          color: isActive ? Colors.white : Colors.grey.shade600,
+                          fontSize: 12,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
@@ -198,7 +224,7 @@ class _ManagePlansScreenState extends ConsumerState<ManagePlansScreen> {
                 if (plan.featuresList.isNotEmpty) ...[
                   const Text(
                     'Fonctionnalités incluses :',
-                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF0A2647)),
+                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.black87),
                   ),
                   const SizedBox(height: 8),
                   ...plan.featuresList.map((feature) => Padding(
@@ -231,7 +257,7 @@ class _ManagePlansScreenState extends ConsumerState<ManagePlansScreen> {
                   onPressed: () => _showPlanDialog(context, plan: plan),
                   icon: const Icon(Icons.edit_outlined),
                   label: const Text('Modifier'),
-                  style: TextButton.styleFrom(foregroundColor: const Color(0xFF2C74B3)),
+                  style: TextButton.styleFrom(foregroundColor: const Color(0xFFEA580C)),
                 ),
                 const SizedBox(width: 8),
                 TextButton.icon(

@@ -11,6 +11,7 @@ enum PaymentMethodType {
   moovMoney,
   samaMoney,
   stripe, // Carte bancaire
+  simulation, // Mode test
 }
 
 /// Modèle pour une session de paiement initiée par le backend.
@@ -56,13 +57,30 @@ class PaymentService {
     required double amount,
     required PaymentMethodType method,
     bool isSubscription = false,
+    bool isResellRight = false,
   }) async {
     try {
+      final String typeTransaction;
+      if (isSubscription) {
+        typeTransaction = 'subscription';
+      } else if (isResellRight) {
+        typeTransaction = 'resell_right';
+      } else {
+        typeTransaction = 'purchase';
+      }
+
+      String apiModePaiement = 'movapay';
+      if (method == PaymentMethodType.wallet) {
+        apiModePaiement = 'wallet';
+      } else if (method == PaymentMethodType.simulation) {
+        apiModePaiement = 'simulation';
+      }
+
       final Map<String, dynamic> requestData = {
         'phone': phone,
         'montant': amount,
-        'type_transaction': isSubscription ? 'subscription' : 'purchase',
-        'mode_paiement': method == PaymentMethodType.wallet ? 'wallet' : 'movapay',
+        'type_transaction': typeTransaction,
+        'mode_paiement': apiModePaiement,
       };
 
       if (publicationId != null) {

@@ -32,13 +32,6 @@ with connection.cursor() as cursor:
         if deleted:
             print(f"🗑️  Supprimé l'entrée obsolète publications.0003_add_conversations")
 
-        # S'assurer que la colonne updated_at est bien présente dans la table review (suite au fake de 0003)
-        cursor.execute("""
-            ALTER TABLE publications_review 
-            ADD COLUMN IF NOT EXISTS updated_at timestamp with time zone DEFAULT now() NOT NULL
-        """)
-        print("✅ Colonne updated_at assurée sur la table publications_review")
-
         # Insérer 0003_conversations s'il n'est pas déjà enregistré
         cursor.execute(
             "SELECT 1 FROM django_migrations WHERE app='publications' AND name='0003_conversations'"

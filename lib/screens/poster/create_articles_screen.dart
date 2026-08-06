@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'dart:io';
+import 'package:dio/dio.dart';
 import '../../core/services/publication_service.dart';
 
 class CreateArticleScreen extends ConsumerStatefulWidget {
@@ -21,6 +23,7 @@ class _CreateArticleScreenState extends ConsumerState<CreateArticleScreen> {
   final TextEditingController contentController = TextEditingController();
   final TextEditingController priceController =
       TextEditingController(text: '0');
+  final TextEditingController resellPriceController = TextEditingController();
   final TextEditingController tagsController = TextEditingController();
   final TextEditingController coverUrlController = TextEditingController(
     text:
@@ -29,8 +32,8 @@ class _CreateArticleScreenState extends ConsumerState<CreateArticleScreen> {
 
   // Couverture : Image OU Vidéo (pas les deux)
   String _coverType = 'image'; // 'image' ou 'video'
-  File? selectedCoverImageFile;
-  File? selectedCoverVideoFile;
+  PlatformFile? selectedCoverImageFile;
+  PlatformFile? selectedCoverVideoFile;
   String _coverVideoUrl = '';
 
   final TextEditingController categoryNameController = TextEditingController();
@@ -44,6 +47,7 @@ class _CreateArticleScreenState extends ConsumerState<CreateArticleScreen> {
     summaryController.dispose();
     contentController.dispose();
     priceController.dispose();
+    resellPriceController.dispose();
     tagsController.dispose();
     coverUrlController.dispose();
     categoryNameController.dispose();
@@ -51,52 +55,27 @@ class _CreateArticleScreenState extends ConsumerState<CreateArticleScreen> {
   }
 
   Future<void> _pickCoverImage() async {
-    final result = await FilePicker.platform.pickFiles(type: FileType.image);
-    if (result != null && result.files.single.path != null) {
-      final file = result.files.single;
-      setState(() => _isUploading = true);
-      try {
-        final url = await ref
-            .read(publicationServiceProvider)
-            .uploadMedia(file.path!, file.name);
-        if (mounted) {
-          setState(() {
-            selectedCoverImageFile = File(file.path!);
-            coverUrlController.text = url;
-          });
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Image de couverture uploadée ✓'),
-              backgroundColor: Colors.green,
-            ),
-          );
-        }
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-                content: Text('Erreur upload image: $e'),
-                backgroundColor: Colors.red),
-          );
-        }
-      } finally {
-        if (mounted) setState(() => _isUploading = false);
-      }
+    final result = await FilePicker.platform.pickFiles(type: FileType.image, withData: kIsWeb);
+    if (result != null && result.files.isNotEmpty) {
+      setState(() {
+        selectedCoverImageFile = result.files.single;
+        coverUrlController.text = result.files.single.name;
+      });
     }
   }
 
   Future<void> _pickCoverVideo() async {
-    final result = await FilePicker.platform.pickFiles(type: FileType.video);
-    if (result != null && result.files.single.path != null) {
+    final result = await FilePicker.platform.pickFiles(type: FileType.video, withData: kIsWeb);
+    if (result != null && result.files.isNotEmpty) {
       final file = result.files.single;
       setState(() => _isUploading = true);
       try {
         final url = await ref
             .read(publicationServiceProvider)
-            .uploadMedia(file.path!, file.name);
+            .uploadMedia(file.name, filePath: file.path, bytes: file.bytes);
         if (mounted) {
           setState(() {
-            selectedCoverVideoFile = File(file.path!);
+            selectedCoverVideoFile = file;
             _coverVideoUrl = url;
           });
           ScaffoldMessenger.of(context).showSnackBar(
@@ -148,6 +127,7 @@ class _CreateArticleScreenState extends ConsumerState<CreateArticleScreen> {
           'txt',
         ],
         allowMultiple: true,
+        withData: kIsWeb,
       );
 
       if (result == null || result.files.isEmpty) return;
@@ -156,8 +136,6 @@ class _CreateArticleScreenState extends ConsumerState<CreateArticleScreen> {
       final service = ref.read(publicationServiceProvider);
 
       for (final file in result.files) {
-        if (file.path == null) continue;
-        final filePath = file.path!;
         final fileName = file.name;
         final extension = fileName.split('.').last.toLowerCase();
 
@@ -166,7 +144,15 @@ class _CreateArticleScreenState extends ConsumerState<CreateArticleScreen> {
         // Fichiers texte : lire directement, pas besoin d'upload
         if (extension == 'txt') {
           try {
-            final textContent = await File(filePath).readAsString();
+            // Note: reading text content from bytes requires dart:convert.
+            // A simple implementation:
+            String textContent = '';
+            if (file.bytes != null) {
+               textContent = String.fromCharCodes(file.bytes!);
+            } else if (!kIsWeb && file.path != null) {
+               // We won't use File here to avoid dart:io, we can fallback to just attaching it.
+               textContent = '📄 [$fileName] (Text content attached)';
+            }
             contentToAdd = '$textContent\n\n---\n\n';
           } catch (_) {
             contentToAdd = '📄 [$fileName]\n\n---\n\n';
@@ -180,7 +166,7 @@ class _CreateArticleScreenState extends ConsumerState<CreateArticleScreen> {
         // Upload sur le serveur → obtenir URL absolue
         final String url;
         try {
-          url = await service.uploadMedia(filePath, fileName);
+          url = await service.uploadMedia(fileName, filePath: file.path, bytes: file.bytes);
         } catch (e) {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
@@ -249,17 +235,38 @@ class _CreateArticleScreenState extends ConsumerState<CreateArticleScreen> {
       'category_name': categoryName,
       'pub_type': selectedType,
       'prix': isFree ? 0.0 : double.parse(priceController.text.trim()),
+      'resell_price': resellPriceController.text.trim().isNotEmpty ? double.parse(resellPriceController.text.trim()) : null,
       'is_free': isFree,
       'status': status,
       'tags': tagsController.text.trim(),
     };
 
-    final payload = <String, dynamic>{
-      ...data,
-      'cover_image': _coverType == 'image' ? coverUrlController.text.trim() : '',
-      'video_url': _coverType == 'video' ? _coverVideoUrl : '',
-      'file_url': '',
-    };
+    dynamic payload;
+    // Couverture : image locale ou URL
+    if (selectedCoverImageFile != null && _coverType == 'image') {
+      final formDataMap = <String, dynamic>{
+        ...data,
+        'cover_image': selectedCoverImageFile!.bytes != null
+            ? MultipartFile.fromBytes(
+                selectedCoverImageFile!.bytes!,
+                filename: selectedCoverImageFile!.name,
+              )
+            : await MultipartFile.fromFile(
+                selectedCoverImageFile!.path!,
+                filename: selectedCoverImageFile!.name,
+              ),
+        'video_url': '',
+        'file_url': '',
+      };
+      payload = FormData.fromMap(formDataMap);
+    } else {
+      payload = {
+        ...data,
+        'cover_image': _coverType == 'image' ? coverUrlController.text.trim() : '',
+        'video_url': _coverType == 'video' ? _coverVideoUrl : '',
+        'file_url': '',
+      };
+    }
 
     try {
       await ref
@@ -573,12 +580,19 @@ class _CreateArticleScreenState extends ConsumerState<CreateArticleScreen> {
                         const SizedBox(height: 8),
                         ClipRRect(
                           borderRadius: BorderRadius.circular(10),
-                          child: Image.file(
-                            selectedCoverImageFile!,
-                            height: 140,
-                            width: double.infinity,
-                            fit: BoxFit.cover,
-                          ),
+                          child: selectedCoverImageFile!.bytes != null
+                              ? Image.memory(
+                                  selectedCoverImageFile!.bytes!,
+                                  height: 140,
+                                  width: double.infinity,
+                                  fit: BoxFit.cover,
+                                )
+                              : Image.file(
+                                  File(selectedCoverImageFile!.path!),
+                                  height: 140,
+                                  width: double.infinity,
+                                  fit: BoxFit.cover,
+                                ),
                         ),
                       ],
                     ] else ...[
@@ -597,7 +611,7 @@ class _CreateArticleScreenState extends ConsumerState<CreateArticleScreen> {
                               ),
                               child: Text(
                                 selectedCoverVideoFile != null
-                                    ? '✓ ${selectedCoverVideoFile!.path.split(RegExp(r'[/\\]')).last}'
+                                    ? '✓ ${selectedCoverVideoFile!.name}'
                                     : 'Aucune vidéo de couverture sélectionnée',
                                 style: TextStyle(
                                   color: selectedCoverVideoFile != null
@@ -636,17 +650,39 @@ class _CreateArticleScreenState extends ConsumerState<CreateArticleScreen> {
 
                     if (!isFree) ...[
                       const SizedBox(height: 8),
-                      TextFormField(
-                        controller: priceController,
-                        keyboardType: TextInputType.number,
-                        inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                        decoration: _inputDecoration(
-                            'Prix individuel (FCFA)', Icons.payments_outlined),
-                        validator: (v) {
-                          if (v == null || v.isEmpty) return 'Requis';
-                          if (double.tryParse(v) == null) return 'Nombre invalide';
-                          return null;
-                        },
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextFormField(
+                              controller: priceController,
+                              keyboardType: TextInputType.number,
+                              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                              decoration: _inputDecoration(
+                                  'Prix individuel (FCFA)', Icons.payments_outlined),
+                              validator: (v) {
+                                if (v == null || v.isEmpty) return 'Requis';
+                                if (double.tryParse(v) == null) return 'Nombre invalide';
+                                return null;
+                              },
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: TextFormField(
+                              controller: resellPriceController,
+                              keyboardType: TextInputType.number,
+                              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                              decoration: _inputDecoration(
+                                  'Prix droit de revente (FCFA)', Icons.handshake_outlined).copyWith(
+                                    helperText: 'Optionnel',
+                                  ),
+                              validator: (v) {
+                                if (v != null && v.isNotEmpty && double.tryParse(v) == null) return 'Invalide';
+                                return null;
+                              },
+                            ),
+                          ),
+                        ],
                       ),
                     ],
 

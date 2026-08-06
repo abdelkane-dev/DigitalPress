@@ -151,22 +151,23 @@ class NotificationsNotifier
 
   void _startPolling() {
     _pollingTimer?.cancel();
-    _pollingTimer = Timer.periodic(const Duration(seconds: 15), (_) {
-      load();
+    _pollingTimer = Timer.periodic(const Duration(seconds: 60), (_) {
+      load(isBackground: true);
     });
   }
 
-  Future<void> load() async {
+  Future<void> load({bool isBackground = false}) async {
     final token = await _ref.read(secureStorageServiceProvider).getToken();
     if (token == null || token.isEmpty) {
-      _logger.w('load() cancelled: no token available');
       _pollingTimer?.cancel();
       state = const AsyncValue.data([]);
       return;
     }
 
-    _logger.i('Calling notifications/ with token present');
-    state = const AsyncValue.loading();
+    if (!isBackground) {
+      state = const AsyncValue.loading();
+    }
+    
     try {
       final response = await _api.get('notifications/');
       _consecutiveNetworkErrors = 0;

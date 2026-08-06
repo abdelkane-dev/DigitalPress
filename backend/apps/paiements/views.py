@@ -58,8 +58,55 @@ def _create_payment_notifications(tx):
                 message=f'Votre abonnement a été activé avec succès ({montant} FCFA).',
                 data={'transaction_id': str(tx.id)},
             )
+        elif tx.type_transaction == 'resell_right':
+            pub_title = tx.publication.title if tx.publication else 'Article'
+            Notification.objects.create(
+                user=tx.payer,
+                type_notif='payment_success',
+                title='Achat droits de revente',
+                message=f'Vous avez acquis les droits de revente de « {pub_title} » ({montant} FCFA).',
+                data={'transaction_id': str(tx.id), 'publication_id': tx.publication_id},
+            )
+            if tx.beneficiaire:
+                Notification.objects.create(
+                    user=tx.beneficiaire,
+                    type_notif='payment_success',
+                    title='Cession de droits de revente',
+                    message=f'Droits de revente acquis pour « {pub_title} ». Gain: {int(tx.montant_net)} FCFA.',
+                    data={'transaction_id': str(tx.id)},
+                )
     except Exception as e:
         logger.error("Erreur création notification paiement: %s", str(e))
+
+def _activer_resell_right(tx):
+    from apps.publications.models import CollaborationRight, Publication
+    try:
+        CollaborationRight.objects.get_or_create(
+            buyer_publisher=tx.payer,
+            original_publication=tx.publication,
+            defaults={'price_paid': tx.montant_brut}
+        )
+        # Cloner la publication pour qu'elle apparaisse dans le catalogue du revendeur
+        # La présence de original_publication permettra au frontend d'afficher "Revendu par"
+        if not Publication.objects.filter(publisher=tx.payer, original_publication=tx.publication).exists():
+            Publication.objects.create(
+                title=tx.publication.title,
+                description=tx.publication.description,
+                content=tx.publication.content,
+                publisher=tx.payer,
+                category=tx.publication.category,
+                cover_image=tx.publication.cover_image,
+                file_url=tx.publication.file_url,
+                video_url=tx.publication.video_url,
+                prix=tx.publication.prix,
+                status='published',
+                pub_type=tx.publication.pub_type,
+                is_free=tx.publication.is_free,
+                tags=tx.publication.tags,
+                original_publication=tx.publication
+            )
+    except Exception as e:
+        logger.error("Erreur activation resell right: %s", str(e))
 
 
 class InitierPaiementView(APIView):
@@ -113,9 +160,16 @@ class InitierPaiementView(APIView):
             if montant <= 0 or montant > Decimal('1000000'):
                 return Response({'error': 'Montant de recharge invalide.'}, status=400)
         elif publication is not None:
-            if publication.is_free or publication.prix == 0:
-                return Response({'error': 'Cette publication est gratuite, aucun paiement requis.'}, status=400)
-            montant = publication.prix
+            if type_tx == 'resell_right':
+                if publication.resell_price is None or publication.resell_price <= 0:
+                    return Response({'error': 'Cette publication n\'est pas disponible pour la revente.'}, status=400)
+                if request.user.role != 'publisher':
+                    return Response({'error': 'Seul un éditeur peut acheter des droits de revente.'}, status=403)
+                montant = publication.resell_price
+            else:
+                if publication.is_free or publication.prix == 0:
+                    return Response({'error': 'Cette publication est gratuite, aucun paiement requis.'}, status=400)
+                montant = publication.prix
         elif abonnement is not None:
             montant = abonnement.montant
         else:
@@ -137,18 +191,19 @@ class InitierPaiementView(APIView):
         montant_net = round(montant - commission, 2)
         reference = str(uuid.uuid4())
 
-        if mode_paiement == 'wallet':
-            if type_tx == 'recharge':
+        if mode_paiement == 'wallet' or mode_paiement == 'simulation':
+            if type_tx == 'recharge' and mode_paiement == 'wallet':
                 return Response({'error': 'Impossible de recharger un portefeuille avec le portefeuille.'}, status=400)
             
             user = request.user
-            if user.solde < montant:
+            if mode_paiement == 'wallet' and user.solde < montant:
                 return Response({'error': 'Solde insuffisant dans votre portefeuille.'}, status=400)
             
             with db_transaction.atomic():
-                # Débiter le client
-                user.solde -= montant
-                user.save(update_fields=['solde'])
+                # Débiter le client (uniquement si wallet)
+                if mode_paiement == 'wallet':
+                    user.solde -= montant
+                    user.save(update_fields=['solde'])
                 
                 # Créditer l'éditeur
                 if beneficiaire and beneficiaire.role == 'publisher':
@@ -174,13 +229,16 @@ class InitierPaiementView(APIView):
                     phone_payer='',
                     status='success',
                     processed_at=timezone.now(),
-                    description=data.get('description', f'Achat via portefeuille pour {publication.title if publication else "Abonnement"}'),
-                    metadata={'mode_paiement': 'wallet'}
+                    description=data.get('description', f'Achat via {mode_paiement} pour {publication.title if publication else "Abonnement"}'),
+                    metadata={'mode_paiement': mode_paiement}
                 )
                 
                 # Activer l'abonnement si type_transaction == 'subscription'
                 if type_tx == 'subscription' and abonnement:
                     abonnement.activate(tx.reference)
+                    
+                if type_tx == 'resell_right' and publication:
+                    _activer_resell_right(tx)
 
                 # Enregistrer l'écriture comptable
                 try:
@@ -294,6 +352,9 @@ class VerifierPaiementView(APIView):
                 # Activer l'abonnement si type_transaction == 'subscription'
                 if tx.type_transaction == 'subscription' and tx.abonnement:
                     tx.abonnement.activate(tx.reference)
+                    
+                if tx.type_transaction == 'resell_right' and tx.publication:
+                    _activer_resell_right(tx)
 
                 # Enregistrer écriture comptable
                 try:
@@ -384,6 +445,9 @@ class WebhookView(APIView):
                 # Activer l'abonnement si type_transaction == 'subscription'
                 if tx.type_transaction == 'subscription' and tx.abonnement:
                     tx.abonnement.activate(tx.reference)
+                    
+                if tx.type_transaction == 'resell_right' and tx.publication:
+                    _activer_resell_right(tx)
 
                 try:
                     with db_transaction.atomic():

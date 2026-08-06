@@ -4,15 +4,15 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../config/api_constants.dart';
 import '../../model/user.dart';
 import '../api/api_client.dart';
-import 'dart:convert';
 import '../storage/secure_storage_service.dart';
-import '../storage/storage_service.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:http_parser/http_parser.dart';
 
 final authServiceProvider = Provider<AuthService>((ref) {
   final apiClient = ref.watch(apiClientProvider);
   final secureStorage = ref.watch(secureStorageServiceProvider);
-  final storage = ref.watch(storageServiceProvider);
-  return AuthService(apiClient, secureStorage, storage);
+  return AuthService(apiClient, secureStorage);
 });
 
 final authStateProvider = StreamProvider<User?>((ref) {
@@ -23,11 +23,10 @@ final authStateProvider = StreamProvider<User?>((ref) {
 class AuthService {
   final ApiClient _apiClient;
   final SecureStorageService _secureStorage;
-  final StorageService _storage;
   final _authStateController = StreamController<User?>.broadcast();
   User? _currentUser;
 
-  AuthService(this._apiClient, this._secureStorage, this._storage) {
+  AuthService(this._apiClient, this._secureStorage) {
     _checkInitialState();
   }
 
@@ -43,43 +42,16 @@ class AuthService {
     try {
       _currentUser = await _fetchProfile();
       _authStateController.add(_currentUser);
-    } catch (e) {
-      bool shouldLogout = false;
-      if (e is DioException) {
-        final status = e.response?.statusCode;
-        if (status == 401 || status == 403) {
-          shouldLogout = true;
-        }
-      }
-
-      if (shouldLogout) {
-        await _secureStorage.deleteAll();
-        await _storage.delete('user_profile');
-        _currentUser = null;
-        _authStateController.add(null);
-      } else {
-        // En cas d'erreur réseau / serveur temporaire, on charge le cache
-        final cached = _storage.get('user_profile');
-        if (cached != null) {
-          try {
-            _currentUser = User.fromApiJson(jsonDecode(cached as String) as Map<String, dynamic>);
-            _authStateController.add(_currentUser);
-          } catch (_) {
-            _authStateController.add(null);
-          }
-        } else {
-          // On n'efface pas les tokens, l'utilisateur reste "connecté" au prochain lancement.
-          _authStateController.add(null);
-        }
-      }
+    } catch (_) {
+      await _secureStorage.deleteAll();
+      _currentUser = null;
+      _authStateController.add(null);
     }
   }
 
   Future<User> _fetchProfile() async {
     final response = await _apiClient.get(ApiConstants.profile);
-    final user = User.fromApiJson(response.data as Map<String, dynamic>);
-    await _storage.set('user_profile', jsonEncode(response.data));
-    return user;
+    return User.fromApiJson(response.data as Map<String, dynamic>);
   }
 
   Future<void> _persistTokens(String access, String? refresh) async {
@@ -110,7 +82,6 @@ class AuthService {
 
     if (data['user'] != null) {
       _currentUser = User.fromApiJson(data['user'] as Map<String, dynamic>);
-      await _storage.set('user_profile', jsonEncode(data['user']));
     } else {
       _currentUser = await _fetchProfile();
     }
@@ -148,18 +119,15 @@ class AuthService {
   Future<void> updateProfile({
     String? name,
     String? phone,
-    String? imagePath,
+    XFile? avatarFile,
     String? companyName,
     String? siret,
     String? address,
     String? website,
     String? bio,
-    // Informations de facturation (point 7)
-    String? billingAddress,
-    String? billingPhone,
   }) async {
     dynamic dataToSend;
-    if (imagePath != null && !imagePath.startsWith('http') && !imagePath.startsWith('/media')) {
+    if (avatarFile != null) {
       final formDataMap = <String, dynamic>{};
       if (name != null) formDataMap['name'] = name;
       if (phone != null) formDataMap['phone'] = phone;
@@ -168,21 +136,29 @@ class AuthService {
       if (address != null) formDataMap['publisher_profile_address'] = address;
       if (website != null) formDataMap['publisher_profile_website'] = website;
       if (bio != null) formDataMap['publisher_profile_bio'] = bio;
-      if (billingAddress != null) formDataMap['billing_address'] = billingAddress;
-      if (billingPhone != null) formDataMap['billing_phone'] = billingPhone;
-
-      formDataMap['avatar'] = await MultipartFile.fromFile(
-        imagePath,
-        filename: imagePath.split('/').last,
-      );
+      
+      final filename = avatarFile.name.isNotEmpty ? avatarFile.name : 'avatar.jpg';
+      final mediaType = MediaType('image', 'jpeg');
+      
+      if (kIsWeb) {
+        final bytes = await avatarFile.readAsBytes();
+        formDataMap['avatar'] = MultipartFile.fromBytes(
+          bytes,
+          filename: filename,
+          contentType: mediaType,
+        );
+      } else {
+        formDataMap['avatar'] = await MultipartFile.fromFile(
+          avatarFile.path,
+          filename: filename,
+          contentType: mediaType,
+        );
+      }
       dataToSend = FormData.fromMap(formDataMap);
     } else {
       final payload = <String, dynamic>{};
       if (name != null) payload['name'] = name;
       if (phone != null) payload['phone'] = phone;
-      if (imagePath != null) payload['avatar'] = imagePath;
-      if (billingAddress != null) payload['billing_address'] = billingAddress;
-      if (billingPhone != null) payload['billing_phone'] = billingPhone;
       if (companyName != null || siret != null || address != null || website != null || bio != null) {
         payload['publisher_profile'] = {
           if (companyName != null) 'company_name': companyName,
@@ -202,7 +178,6 @@ class AuthService {
       data: dataToSend,
     );
     _currentUser = User.fromApiJson(response.data as Map<String, dynamic>);
-    await _storage.set('user_profile', jsonEncode(response.data));
     _authStateController.add(_currentUser);
   }
 
@@ -273,7 +248,6 @@ class AuthService {
 
   Future<void> signOut() async {
     await _secureStorage.deleteAll();
-    await _storage.delete('user_profile');
     _currentUser = null;
     _authStateController.add(null);
   }

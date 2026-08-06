@@ -24,13 +24,13 @@ class AppConfig {
   // ────────────────────────────────────────────────────────────────────────────
 
   /// Android emulator -> 10.0.2.2 points to host's localhost
-  static const String baseUrl = 'http://10.0.2.2:8000/api/';
+  static const String baseUrl = 'http://192.168.1.2:8000/api/';
 
   /// Localhost for iOS simulator, Windows, macOS, Linux, and Android with adb reverse
-  static const String baseUrlLocal = 'http://127.0.0.1:8000/api/';
+  static const String baseUrlLocal = 'http://localhost:8000/api/';
 
   /// Web build
-  static const String baseUrlWeb = 'http://127.0.0.1:8000/api/';
+  static const String baseUrlWeb = 'http://localhost:8000/api/';
 
   // Movapay
   static const String movapayApiKey = 'YOUR_MOVAPAY_KEY';

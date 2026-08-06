@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/services/auth_service.dart';
@@ -9,6 +10,8 @@ import 'purchase_history_screen.dart';
 import 'change_password_screen.dart';
 import '../notifications/notifications_screen.dart';
 import '../../widgets/notification_bell_button.dart';
+import '../../widgets/main_app_bar.dart';
+import 'package:image_picker/image_picker.dart';
 
 class ProfileScreen extends ConsumerWidget {
   const ProfileScreen({super.key});
@@ -19,17 +22,17 @@ class ProfileScreen extends ConsumerWidget {
     final userAsync = ref.watch(authStateProvider);
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFC),
+      backgroundColor: Colors.transparent,
       body: userAsync.when(
         data: (user) {
           if (user == null) return const Center(child: Text('Non connecté'));
           return CustomScrollView(
             slivers: [
-              _buildAppBar(context),
+              const MainAppBar(title: 'Profil'),
               SliverToBoxAdapter(
                 child: Column(
                   children: [
-                    _buildProfileHeader(user),
+                    _buildProfileHeader(context, ref, user),
                     _buildStatsCards(user),
                     _buildMenuSection(context, authService, ref, user),
                   ],
@@ -44,111 +47,41 @@ class ProfileScreen extends ConsumerWidget {
     );
   }
 
-  Widget _buildAppBar(BuildContext context) {
-    return SliverAppBar(
-      expandedHeight: 140.0,
-      floating: false,
-      pinned: true,
-      elevation: 0,
-      backgroundColor: const Color(0xFF0A2647),
-      automaticallyImplyLeading: false,
-      actions: [
-        NotificationBellButton(
-          color: Colors.white,
-          onPressed: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (context) => const NotificationsScreen(),
-              ),
-            );
-          },
-        ),
-        const SizedBox(width: 8),
-      ],
-      flexibleSpace: FlexibleSpaceBar(
-        titlePadding: const EdgeInsets.only(left: 20, bottom: 16),
-        title: const Text(
-          'Profil',
-          style: TextStyle(
-            color: Colors.white,
-            fontWeight: FontWeight.w900,
-            fontSize: 20,
-          ),
-        ),
-        background: Container(
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [Color(0xFF0A2647), Color(0xFF144272)],
-            ),
-          ),
-          child: Stack(
-            children: [
-              Positioned(
-                right: -30,
-                top: -30,
-                child: Container(
-                  width: 120,
-                  height: 120,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: Colors.white.withAlpha(10),
-                  ),
-                ),
-              ),
-              Positioned(
-                left: -20,
-                bottom: -20,
-                child: Container(
-                  width: 80,
-                  height: 80,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: const Color(0xFF2C74B3).withAlpha(30),
-                  ),
-                ),
-              ),
-              // Logo + "DigitalPress" — même position que la page Accueil
-              Positioned(
-                left: 20,
-                top: 52,
-                child: Row(
-                  children: [
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(8),
-                      child: Image.asset(
-                        'assets/app_icon.png',
-                        width: 32,
-                        height: 32,
-                        fit: BoxFit.cover,
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    const Text(
-                      'DigitalPress',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w900,
-                        fontSize: 20,
-                        letterSpacing: -0.5,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
+  Future<void> _pickAndUploadImage(BuildContext context, WidgetRef ref) async {
+    try {
+      final picker = ImagePicker();
+      final image = await picker.pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 1024,
+        maxHeight: 1024,
+        imageQuality: 85,
+      );
+      if (image != null) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Mise à jour de la photo de profil...')),
+          );
+        }
+        await ref.read(authServiceProvider).updateProfile(avatarFile: image);
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Photo de profil mise à jour avec succès'), backgroundColor: Colors.green),
+          );
+        }
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erreur : $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
   }
 
-  Widget _buildProfileHeader(User user) {
+  Widget _buildProfileHeader(BuildContext context, WidgetRef ref, User user) {
     ImageProvider? imageProvider;
-    if (user.photoUrl != null && user.photoUrl!.isNotEmpty) {
-      if (user.photoUrl!.startsWith('http')) {
+    if (user.photoUrl != null) {
+      if (user.photoUrl!.startsWith('http') || kIsWeb) {
         imageProvider = NetworkImage(user.photoUrl!);
       } else {
         imageProvider = FileImage(File(user.photoUrl!));
@@ -157,102 +90,149 @@ class ProfileScreen extends ConsumerWidget {
 
     return Container(
       margin: const EdgeInsets.all(16),
-      padding: const EdgeInsets.all(24),
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFF0A2647), Color(0xFF144272)],
+        ),
+        borderRadius: BorderRadius.circular(24),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF0A2647).withAlpha(8),
-            blurRadius: 20,
-            offset: const Offset(0, 4),
+            color: const Color(0xFF0A2647).withAlpha(60),
+            blurRadius: 24,
+            offset: const Offset(0, 12),
           ),
         ],
       ),
       child: Column(
         children: [
-          Container(
-            width: 100,
-            height: 100,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: imageProvider == null
-                  ? const LinearGradient(
-                      colors: [Color(0xFF0A2647), Color(0xFF2C74B3)],
-                    )
-                  : null,
-              image: imageProvider != null
-                  ? DecorationImage(image: imageProvider, fit: BoxFit.cover)
-                  : null,
-              boxShadow: [
-                BoxShadow(
-                  color: const Color(0xFF2C74B3).withAlpha(80),
-                  blurRadius: 20,
-                  offset: const Offset(0, 8),
+          Stack(
+            children: [
+              GestureDetector(
+                onTap: () => _pickAndUploadImage(context, ref),
+                child: Container(
+                  width: 100,
+                  height: 100,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.amber.shade300, width: 3),
+                    gradient: imageProvider == null
+                        ? const LinearGradient(
+                            colors: [Color(0xFF2C74B3), Color(0xFF4CA1AF)],
+                          )
+                        : null,
+                    image: imageProvider != null
+                        ? DecorationImage(image: imageProvider, fit: BoxFit.cover)
+                        : null,
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withAlpha(50),
+                        blurRadius: 15,
+                        offset: const Offset(0, 8),
+                      ),
+                    ],
+                  ),
+                  child: imageProvider == null
+                      ? const Icon(
+                          Icons.person_rounded,
+                          size: 50,
+                          color: Colors.white,
+                        )
+                      : null,
                 ),
-              ],
-            ),
-            child: imageProvider == null
-                ? const Icon(
-                    Icons.person_rounded,
-                    size: 50,
-                    color: Colors.white,
-                  )
-                : null,
+              ),
+              Positioned(
+                bottom: 0,
+                right: 0,
+                child: GestureDetector(
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const EditProfileScreen()),
+                    );
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.amber.shade400,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: const Color(0xFF0A2647), width: 3),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withAlpha(40),
+                          blurRadius: 4,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                    child: const Icon(
+                      Icons.edit_rounded,
+                      size: 18,
+                      color: Color(0xFF0A2647),
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 20),
           Text(
             user.displayName ?? 'Utilisateur',
             style: const TextStyle(
-              fontSize: 24,
+              fontSize: 26,
               fontWeight: FontWeight.w900,
-              color: Color(0xFF0A2647),
+              color: Colors.white,
+              letterSpacing: -0.5,
             ),
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 6),
           Text(
             user.email,
             style: TextStyle(
-              fontSize: 14,
-              color: Colors.grey.shade600,
-              fontWeight: FontWeight.w600,
+              fontSize: 15,
+              color: Colors.white70,
+              fontWeight: FontWeight.w500,
             ),
           ),
           if (user.phoneNumber != null) ...[
             const SizedBox(height: 4),
             Text(
               user.phoneNumber!,
-              style: TextStyle(fontSize: 13, color: Colors.grey.shade500),
+              style: const TextStyle(fontSize: 14, color: Colors.white60),
             ),
           ],
-          const SizedBox(height: 16),
-          if (user.isVerified)
+          if (user.isVerified) ...[
+            const SizedBox(height: 20),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               decoration: BoxDecoration(
-                color: const Color(0xFF2C74B3).withAlpha(25),
+                color: Colors.amber.shade300.withAlpha(30),
                 borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: Colors.amber.shade300.withAlpha(100)),
               ),
-              child: const Row(
+              child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Icon(
                     Icons.verified_rounded,
-                    color: Color(0xFF2C74B3),
+                    color: Colors.amber.shade300,
                     size: 18,
                   ),
-                  SizedBox(width: 6),
+                  const SizedBox(width: 8),
                   Text(
-                    'Compte Vérifié',
+                    'Membre Premium',
                     style: TextStyle(
-                      color: Color(0xFF2C74B3),
-                      fontWeight: FontWeight.w700,
+                      color: Colors.amber.shade300,
+                      fontWeight: FontWeight.w800,
                       fontSize: 13,
                     ),
                   ),
                 ],
               ),
             ),
+          ],
         ],
       ),
     );
@@ -301,44 +281,50 @@ class ProfileScreen extends ConsumerWidget {
     required Color color,
   }) {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 12),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.grey.shade200, width: 1.5),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF0A2647).withAlpha(8),
-            blurRadius: 15,
+            color: Colors.black.withAlpha(10),
+            blurRadius: 10,
             offset: const Offset(0, 4),
-          ),
+          )
         ],
       ),
       child: Column(
         children: [
           Container(
-            padding: const EdgeInsets.all(10),
+            padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: color.withAlpha(25),
-              borderRadius: BorderRadius.circular(12),
+              gradient: LinearGradient(
+                colors: [color.withAlpha(50), color.withAlpha(10)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              shape: BoxShape.circle,
             ),
-            child: Icon(icon, color: color, size: 24),
+            child: Icon(icon, color: color, size: 28),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 16),
           Text(
             value,
-            style: TextStyle(
-              fontSize: 24,
+            style: const TextStyle(
+              fontSize: 26,
               fontWeight: FontWeight.w900,
-              color: color,
+              color: Colors.black87,
+              letterSpacing: -0.5,
             ),
           ),
           const SizedBox(height: 4),
           Text(
             label,
             style: TextStyle(
-              fontSize: 12,
+              fontSize: 13,
               color: Colors.grey.shade600,
-              fontWeight: FontWeight.w600,
+              fontWeight: FontWeight.w700,
             ),
           ),
         ],
@@ -352,149 +338,188 @@ class ProfileScreen extends ConsumerWidget {
     WidgetRef ref,
     User user,
   ) {
-    return Container(
-      margin: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFF0A2647).withAlpha(8),
-            blurRadius: 20,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        children: [
-          _buildMenuItem(
-            icon: Icons.person_outline_rounded,
-            title: 'Informations personnelles',
-            subtitle: 'Gérer vos informations',
-            onTap: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const EditProfileScreen()),
-              );
-            },
-          ),
-          _buildDivider(),
-          _buildMenuItem(
-            icon: Icons.receipt_long_rounded,
-            title: 'Historique d\'achats',
-            subtitle: 'Voir vos transactions',
-            onTap: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => const PurchaseHistoryScreen(),
-                ),
-              );
-            },
-          ),
-          _buildDivider(),
-          if (user.role == 'reader') ...[
+    return Column(
+      children: [
+        const SizedBox(height: 16),
+        _buildMenuGroup(
+          title: 'Général',
+          children: [
             _buildMenuItem(
-              icon: Icons.account_balance_wallet_rounded,
-              title: 'Mon Portefeuille',
-              subtitle: 'Solde, recharges et transactions',
-              onTap: () => context.push('/profile/wallet'),
+              icon: Icons.person_outline_rounded,
+              title: 'Informations personnelles',
+              subtitle: 'Gérer vos informations',
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const EditProfileScreen()),
+                );
+              },
             ),
             _buildDivider(),
-          ],
-          if (user.role == 'publisher') ...[
             _buildMenuItem(
-              icon: Icons.account_balance_rounded,
-              title: 'Comptabilité Presse',
-              subtitle: 'Solde, revenus et retraits',
-              onTap: () => context.push('/poster/comptabilite'),
-            ),
-            _buildDivider(),
-          ],
-          if (user.role == 'admin') ...[
-            _buildMenuItem(
-              icon: Icons.admin_panel_settings_rounded,
-              title: 'Comptabilité Générale',
-              subtitle: 'Journal général et réconciliations',
-              onTap: () => context.push('/admin/comptabilite'),
-            ),
-            _buildDivider(),
-          ],
-          _buildMenuItem(
-            icon: Icons.notifications_outlined,
-            title: 'Notifications',
-            subtitle: 'Gérer les notifications',
-            trailing: Switch(
-              value: true, // Mock value
-              onChanged: (val) {
-                // Mock toggle
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(
-                      'Notifications ${val ? "activées" : "désactivées"}',
-                    ),
+              icon: Icons.receipt_long_rounded,
+              title: 'Historique d\'achats',
+              subtitle: 'Voir vos transactions',
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const PurchaseHistoryScreen(),
                   ),
                 );
               },
-              activeThumbColor: const Color(0xFF2C74B3),
             ),
-            onTap: () {}, // No action on tap, handled by switch
-          ),
-          _buildDivider(),
-          _buildMenuItem(
-            icon: Icons.security_rounded,
-            title: 'Sécurité',
-            subtitle: 'Changer le mot de passe',
-            onTap: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const ChangePasswordScreen()),
-              );
-            },
-          ),
-          _buildDivider(),
-          _buildMenuItem(
-            icon: Icons.help_outline_rounded,
-            title: 'Aide et support',
-            subtitle: 'FAQ, contact',
-            onTap: () {
-              _showHelpDialog(context);
-            },
-          ),
-          _buildDivider(),
-          _buildMenuItem(
-            icon: Icons.info_outline_rounded,
-            title: 'À propos',
-            subtitle: 'Version 1.0.0',
-            onTap: () {
-              showAboutDialog(
-                context: context,
-                applicationName: 'DigitalPress',
-                applicationVersion: '1.0.0',
-                applicationIcon: ClipRRect(
-                  borderRadius: BorderRadius.circular(10),
-                  child: Image.asset(
-                    'assets/app_icon.png',
-                    width: 48,
-                    height: 48,
-                    fit: BoxFit.cover,
+            if (user.role == 'reader') ...[
+              _buildDivider(),
+              _buildMenuItem(
+                icon: Icons.account_balance_wallet_rounded,
+                title: 'Mon Portefeuille',
+                subtitle: 'Solde, recharges et transactions',
+                onTap: () => context.push('/profile/wallet'),
+              ),
+            ],
+            if (user.role == 'publisher') ...[
+              _buildDivider(),
+              _buildMenuItem(
+                icon: Icons.account_balance_rounded,
+                title: 'Comptabilité Presse',
+                subtitle: 'Solde, revenus et retraits',
+                onTap: () => context.push('/poster/comptabilite'),
+              ),
+            ],
+            if (user.role == 'admin') ...[
+              _buildDivider(),
+              _buildMenuItem(
+                icon: Icons.admin_panel_settings_rounded,
+                title: 'Comptabilité Générale',
+                subtitle: 'Journal général et réconciliations',
+                onTap: () => context.push('/admin/comptabilite'),
+              ),
+            ],
+          ],
+        ),
+        _buildMenuGroup(
+          title: 'Paramètres',
+          children: [
+            _buildMenuItem(
+              icon: Icons.notifications_outlined,
+              title: 'Notifications',
+              subtitle: 'Gérer les alertes',
+              trailing: Switch(
+                value: true, // Mock value
+                onChanged: (val) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Notifications ${val ? "activées" : "désactivées"}'),
+                    ),
+                  );
+                },
+                activeThumbColor: Colors.white,
+                activeTrackColor: const Color(0xFF336B82),
+              ),
+              onTap: () {},
+            ),
+            _buildDivider(),
+            _buildMenuItem(
+              icon: Icons.security_rounded,
+              title: 'Sécurité',
+              subtitle: 'Changer le mot de passe',
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const ChangePasswordScreen()),
+                );
+              },
+            ),
+            _buildDivider(),
+            _buildMenuItem(
+              icon: Icons.help_outline_rounded,
+              title: 'Aide et support',
+              subtitle: 'FAQ, contact',
+              onTap: () {
+                _showHelpDialog(context);
+              },
+            ),
+            _buildDivider(),
+            _buildMenuItem(
+              icon: Icons.info_outline_rounded,
+              title: 'À propos',
+              subtitle: 'Version 1.0.0',
+              onTap: () {
+                showAboutDialog(
+                  context: context,
+                  applicationName: 'DigitalPress',
+                  applicationVersion: '1.0.0',
+                  applicationIcon: ClipRRect(
+                    borderRadius: BorderRadius.circular(10),
+                    child: Image.asset(
+                      'assets/app_icon.png',
+                      width: 48,
+                      height: 48,
+                      fit: BoxFit.cover,
+                    ),
                   ),
-                ),
-                children: const [
-                  Text('La meilleure application de presse numérique.'),
-                ],
-              );
-            },
+                  children: const [
+                    Text('La meilleure application de presse numérique.'),
+                  ],
+                );
+              },
+            ),
+          ],
+        ),
+        _buildMenuGroup(
+          title: 'Compte',
+          children: [
+            _buildMenuItem(
+              icon: Icons.logout_rounded,
+              title: 'Déconnexion',
+              subtitle: 'Se déconnecter du compte',
+              color: Colors.red.shade600,
+              onTap: () {
+                _showLogoutDialog(context, authService);
+              },
+            ),
+          ],
+        ),
+        const SizedBox(height: 100), // Espace supplémentaire pour le scroll / BottomNavBar
+      ],
+    );
+  }
+
+  Widget _buildMenuGroup({required String title, required List<Widget> children}) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(left: 16, bottom: 8),
+            child: Text(
+              title.toUpperCase(),
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+                color: Colors.grey.shade600,
+                letterSpacing: 1.2,
+              ),
+            ),
           ),
-          _buildDivider(),
-          _buildMenuItem(
-            icon: Icons.logout_rounded,
-            title: 'Déconnexion',
-            subtitle: 'Se déconnecter du compte',
-            color: Colors.red,
-            onTap: () {
-              _showLogoutDialog(context, authService);
-            },
+          Container(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: Colors.grey.shade200, width: 1),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withAlpha(10),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                )
+              ],
+            ),
+            child: Column(
+              children: children,
+            ),
           ),
         ],
       ),
@@ -509,7 +534,7 @@ class ProfileScreen extends ConsumerWidget {
     Color? color,
     Widget? trailing,
   }) {
-    final itemColor = color ?? const Color(0xFF0A2647);
+    final itemColor = color ?? Colors.black87;
 
     return InkWell(
       onTap: onTap,
@@ -568,17 +593,18 @@ class ProfileScreen extends ConsumerWidget {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
+        backgroundColor: Colors.white,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: const Text(
           'Déconnexion',
           style: TextStyle(
             fontWeight: FontWeight.w900,
-            color: Color(0xFF0A2647),
+            color: Colors.black87,
           ),
         ),
         content: const Text(
           'Êtes-vous sûr de vouloir vous déconnecter ?',
-          style: TextStyle(fontSize: 14),
+          style: TextStyle(fontSize: 14, color: Colors.black87),
         ),
         actions: [
           TextButton(

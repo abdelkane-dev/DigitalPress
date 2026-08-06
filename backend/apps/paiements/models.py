@@ -7,6 +7,7 @@ class Transaction(models.Model):
     TYPE_CHOICES = [
         ('subscription', 'Abonnement'),
         ('purchase', 'Achat unitaire'),
+        ('resell_right', 'Achat de droit de revente'),
         ('withdrawal', 'Retrait éditeur'),
         ('commission', 'Commission plateforme'),
         ('refund', 'Remboursement'),

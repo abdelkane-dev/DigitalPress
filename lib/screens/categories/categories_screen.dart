@@ -3,8 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/services/favorites_service.dart';
 import '../../model/reader_category.dart';
 import 'reader_playlist_detail_screen.dart';
-import '../notifications/notifications_screen.dart';
-import '../../widgets/notification_bell_button.dart';
+import '../../widgets/main_app_bar.dart';
 
 /// Page « Catégories » du Lecteur.
 /// N'affiche que les playlists personnelles du lecteur (ex-onglet « Mes
@@ -159,127 +158,35 @@ class _CategoriesScreenState extends ConsumerState<CategoriesScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFC),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () => _showCreateCategoryDialog(context),
-        backgroundColor: Colors.orange.shade700,
-        foregroundColor: Colors.white,
-        child: const Icon(Icons.add_rounded, size: 28),
-      ),
+      backgroundColor: Colors.transparent,
       body: CustomScrollView(
         slivers: [
-          _buildAppBar(),
+          MainAppBar(
+            title: 'Catégories',
+            extraAction: Container(
+              margin: const EdgeInsets.only(right: 4),
+              decoration: BoxDecoration(
+                color: Colors.grey.shade200,
+                shape: BoxShape.circle,
+              ),
+              child: IconButton(
+                padding: const EdgeInsets.all(8),
+                constraints: const BoxConstraints(),
+                icon: Icon(
+                  _isGridView ? Icons.view_list_rounded : Icons.grid_view_rounded,
+                  color: const Color(0xFF0A2647),
+                  size: 20,
+                ),
+                onPressed: () => setState(() => _isGridView = !_isGridView),
+              ),
+            ),
+          ),
           ..._buildCategoriesSlivers(context),
         ],
       ),
     );
   }
 
-  // ──────────────────────────── AppBar ─────────────────────────────────────
-
-  Widget _buildAppBar() {
-    return SliverAppBar(
-      expandedHeight: 140.0,
-      floating: false,
-      pinned: true,
-      elevation: 0,
-      backgroundColor: const Color(0xFF0A2647),
-      automaticallyImplyLeading: false,
-      actions: [
-        IconButton(
-          icon: Icon(
-            _isGridView ? Icons.view_list_rounded : Icons.grid_view_rounded,
-            color: Colors.white,
-          ),
-          onPressed: () => setState(() => _isGridView = !_isGridView),
-        ),
-        NotificationBellButton(
-          color: Colors.white,
-          onPressed: () => Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => const NotificationsScreen()),
-          ),
-        ),
-        const SizedBox(width: 8),
-      ],
-      flexibleSpace: FlexibleSpaceBar(
-        titlePadding: const EdgeInsets.only(left: 20, bottom: 16),
-        title: const Text(
-          'Catégories',
-          style: TextStyle(
-            color: Colors.white,
-            fontWeight: FontWeight.w900,
-            fontSize: 20,
-          ),
-        ),
-        background: Container(
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [Color(0xFF0A2647), Color(0xFF144272)],
-            ),
-          ),
-          child: Stack(
-            children: [
-              Positioned(
-                right: -50,
-                top: -50,
-                child: Container(
-                  width: 180,
-                  height: 180,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: Colors.white.withAlpha(10),
-                  ),
-                ),
-              ),
-              Positioned(
-                left: -30,
-                bottom: -30,
-                child: Container(
-                  width: 120,
-                  height: 120,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: const Color(0xFF2C74B3).withAlpha(30),
-                  ),
-                ),
-              ),
-              // Logo + "DigitalPress" — même position que la page Accueil
-              Positioned(
-                left: 20,
-                top: 52,
-                child: Row(
-                  children: [
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(8),
-                      child: Image.asset(
-                        'assets/app_icon.png',
-                        width: 32,
-                        height: 32,
-                        fit: BoxFit.cover,
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    const Text(
-                      'DigitalPress',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w900,
-                        fontSize: 20,
-                        letterSpacing: -0.5,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
 
   // ──────────────────────────── Liste des catégories (playlists) ───────────
 
@@ -476,11 +383,13 @@ class _CategoriesScreenState extends ConsumerState<CategoriesScreen> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.grey.shade200, width: 1),
         boxShadow: [
           BoxShadow(
-              color: const Color(0xFF0A2647).withAlpha(10),
-              blurRadius: 15,
-              offset: const Offset(0, 4)),
+            color: Colors.black.withAlpha(10),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          )
         ],
       ),
       child: ListTile(
@@ -496,7 +405,7 @@ class _CategoriesScreenState extends ConsumerState<CategoriesScreen> {
         ),
         title: Text(
           category.name,
-          style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
+          style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15, color: Colors.black87),
         ),
         subtitle: Text(
           '${category.articlesCount} article(s)',

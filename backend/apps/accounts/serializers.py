@@ -80,9 +80,7 @@ class UserSerializer(serializers.ModelSerializer):
         model = User
         fields = ['id', 'username', 'email', 'name', 'phone', 'avatar',
                   'role', 'is_verified', 'is_active', 'solde', 'publisher_profile',
-                  'date_joined', 'stats', 'preferences',
-                  # Informations de facturation (point 7)
-                  'billing_address', 'billing_phone']
+                  'date_joined', 'stats', 'preferences']
         read_only_fields = ['date_joined', 'is_verified', 'solde']
 
     def get_stats(self, obj):
@@ -100,34 +98,13 @@ class UserSerializer(serializers.ModelSerializer):
         }
 
     def get_preferences(self, obj):
-        # Lecture des préférences depuis la DB si disponibles (point 5)
-        try:
-            pref = obj.notification_preference
-            return {
-                'notifications_enabled': pref.email_enabled or pref.push_enabled,
-                'email_notifications': pref.email_enabled,
-                'push_notifications': pref.push_enabled,
-                'sms_notifications': pref.sms_enabled,
-                'frequency': pref.frequency,
-                'notify_new_publication': pref.notify_new_publication,
-                'notify_payment': pref.notify_payment,
-                'notify_subscription': pref.notify_subscription,
-                'language': 'fr',
-                'dark_mode': False,
-            }
-        except Exception:
-            return {
-                'notifications_enabled': True,
-                'email_notifications': True,
-                'push_notifications': True,
-                'sms_notifications': False,
-                'frequency': 'immediate',
-                'notify_new_publication': True,
-                'notify_payment': True,
-                'notify_subscription': True,
-                'language': 'fr',
-                'dark_mode': False,
-            }
+        return {
+            'notifications_enabled': True,
+            'email_notifications': True,
+            'push_notifications': True,
+            'language': 'fr',
+            'dark_mode': False,
+        }
 
     def to_internal_value(self, data):
         mutable_data = data.copy() if hasattr(data, 'copy') else dict(data)
@@ -199,15 +176,7 @@ class RegisterSerializer(serializers.ModelSerializer):
         if attrs['password'] != attrs.pop('password2'):
             raise serializers.ValidationError({'password': 'Les mots de passe ne correspondent pas.'})
         if attrs.get('role') == 'publisher' and not attrs.get('company_name', '').strip():
-            raise serializers.ValidationError({'company_name': "Le nom de l'entreprise est requis pour un éditeur."})
-        # Vérification explicite de l'unicité de l'email (point 1)
-        email = attrs.get('email', '').strip().lower()
-        if email and User.objects.filter(email__iexact=email).exists():
-            raise serializers.ValidationError(
-                {'email': 'Cette adresse email est déjà utilisée par un autre compte. '
-                          'Veuillez vous connecter ou utiliser une autre adresse.'}
-            )
-        attrs['email'] = email  # normaliser l'email en minuscules
+            raise serializers.ValidationError({'company_name': 'Le nom de l\'entreprise est requis pour un éditeur.'})
         return attrs
 
     def create(self, validated_data):

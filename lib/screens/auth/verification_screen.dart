@@ -195,7 +195,7 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
         child: Container(
           decoration: BoxDecoration(
             // ignore: deprecated_member_use
-            color: Colors.white.withOpacity(0.2),
+            color: Colors.white.withValues(alpha: 0.2),
             borderRadius: BorderRadius.circular(12),
           ),
           child: IconButton(
@@ -214,14 +214,14 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
           padding: const EdgeInsets.all(24),
           decoration: BoxDecoration(
             // ignore: deprecated_member_use
-            color: Colors.white.withOpacity(0.15),
+            color: Colors.white.withValues(alpha: 0.15),
             shape: BoxShape.circle,
             // ignore: deprecated_member_use
-            border: Border.all(color: Colors.white.withOpacity(0.3), width: 2),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.3), width: 2),
             boxShadow: [
               BoxShadow(
                 // ignore: deprecated_member_use
-                color: Colors.black.withOpacity(0.1),
+                color: Colors.black.withValues(alpha: 0.1),
                 blurRadius: 30,
                 offset: const Offset(0, 10),
               ),
@@ -249,7 +249,7 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
           style: TextStyle(
             fontSize: 16,
             // ignore: deprecated_member_use
-            color: Colors.white.withOpacity(0.9),
+            color: Colors.white.withValues(alpha: 0.9),
             fontWeight: FontWeight.w500,
           ),
         ),
@@ -258,7 +258,7 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
           decoration: BoxDecoration(
             // ignore: deprecated_member_use
-            color: Colors.white.withOpacity(0.1),
+            color: Colors.white.withValues(alpha: 0.1),
             borderRadius: BorderRadius.circular(20),
           ),
           child: Text(
@@ -283,7 +283,7 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
         boxShadow: [
           BoxShadow(
             // ignore: deprecated_member_use
-            color: Colors.black.withOpacity(0.1),
+            color: Colors.black.withValues(alpha: 0.1),
             blurRadius: 30,
             offset: const Offset(0, 10),
           ),
@@ -364,7 +364,7 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
         boxShadow: [
           BoxShadow(
             // ignore: deprecated_member_use
-            color: const Color(0xFF2C74B3).withOpacity(0.4),
+            color: const Color(0xFF2C74B3).withValues(alpha: 0.4),
             blurRadius: 20,
             offset: const Offset(0, 8),
           ),
@@ -409,7 +409,7 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             decoration: BoxDecoration(
               // ignore: deprecated_member_use
-              color: Colors.white.withOpacity(0.1),
+              color: Colors.white.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(20),
             ),
             child: Row(

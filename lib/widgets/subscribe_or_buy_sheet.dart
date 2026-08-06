@@ -25,9 +25,10 @@ class _SubscribeOrBuySheetState extends ConsumerState<SubscribeOrBuySheet> {
   @override
   Widget build(BuildContext context) {
     final plansAsync = ref.watch(publisherPlansProvider(widget.publication.publisherId));
+    final bottomPadding = MediaQuery.of(context).padding.bottom;
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+      padding: EdgeInsets.fromLTRB(24, 32, 24, bottomPadding > 0 ? bottomPadding + 16 : 32),
       decoration: const BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.vertical(top: Radius.circular(30)),
@@ -56,6 +57,10 @@ class _SubscribeOrBuySheetState extends ConsumerState<SubscribeOrBuySheet> {
               const SizedBox(height: 12),
               // Option Achat Unitaire
               _buildUnitOption(),
+              if (widget.publication.resellPrice != null && widget.publication.resellPrice! > 0) ...[
+                const SizedBox(height: 12),
+                _buildResellOption(),
+              ],
               const SizedBox(height: 12),
               // Options Abonnements
               plansAsync.when(
@@ -231,7 +236,7 @@ class _SubscribeOrBuySheetState extends ConsumerState<SubscribeOrBuySheet> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text(
-                    'Acheter ce numéro',
+                    'Acheter ce journal',
                     style: TextStyle(
                       fontWeight: FontWeight.bold,
                       fontSize: 15,
@@ -239,7 +244,7 @@ class _SubscribeOrBuySheetState extends ConsumerState<SubscribeOrBuySheet> {
                     ),
                   ),
                   Text(
-                    'Accès permanent à ce numéro uniquement',
+                    'Accès permanent à ce journal uniquement',
                     style: TextStyle(color: Colors.grey.shade500, fontSize: 11),
                   ),
                 ],
@@ -247,6 +252,74 @@ class _SubscribeOrBuySheetState extends ConsumerState<SubscribeOrBuySheet> {
             ),
             Text(
               '${widget.publication.prix.toStringAsFixed(0)} FCFA',
+              style: const TextStyle(
+                fontWeight: FontWeight.w900,
+                fontSize: 16,
+                color: Color(0xFF0A2647),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildResellOption() {
+    return InkWell(
+      onTap: () {
+        Navigator.pop(context); // Ferme ce sheet
+        // Ouvre le sheet de paiement
+        showModalBottomSheet(
+          context: context,
+          isScrollControlled: true,
+          backgroundColor: Colors.transparent,
+          builder: (context) => PaymentSelectionSheet(
+            journalId: widget.publication.id.toString(),
+            price: widget.publication.resellPrice ?? 0,
+            isResellRight: true,
+          ),
+        );
+      },
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: const Color(0xFFD95A00).withAlpha(50), width: 1.5),
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: const Color(0xFFD95A00).withAlpha(20),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.handshake_rounded, color: Color(0xFFD95A00)),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Acheter les droits de revente',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 15,
+                      color: Color(0xFF0A2647),
+                    ),
+                  ),
+                  Text(
+                    'Vendez ce journal sur votre propre kiosque',
+                    style: TextStyle(color: Colors.grey.shade500, fontSize: 11),
+                  ),
+                ],
+              ),
+            ),
+            Text(
+              '${widget.publication.resellPrice!.toStringAsFixed(0)} FCFA',
               style: const TextStyle(
                 fontWeight: FontWeight.w900,
                 fontSize: 16,

@@ -1,8 +1,7 @@
-import 'dart:io';
-
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../utils/platform_helper.dart';
 
 final securityServiceProvider = Provider<SecurityService>((ref) {
   return SecurityService();
@@ -12,11 +11,17 @@ class SecurityService {
   static const platform = MethodChannel('com.example.digitalpress/security');
 
   /// Active ou désactive la protection contre les captures d'écran (DRM).
-  /// Sur Android, utilise FLAG_SECURE pour rendre l'écran opaque dans le
-  /// récent, les notifications et interdire les captures d'écran système.
+  ///
+  /// Comportement par plateforme :
+  /// - **Android** : utilise FLAG_SECURE (interdit captures d'écran + écran opaque
+  ///   dans les tâches récentes).
+  /// - **iOS** : pas de FLAG_SECURE natif, mais un MethodChannel pourrait être
+  ///   ajouté pour utiliser `UITextField.isSecureTextEntry` (technique avancée).
+  /// - **macOS / Windows / Linux / Web** : aucune protection native disponible.
+  ///   Le watermark d'identité reste la principale dissuasion sur ces plateformes.
   Future<void> setSecureMode(bool enable) async {
     if (kIsWeb) return;
-    if (!Platform.isAndroid) return;
+    if (!PlatformHelper.isAndroid) return;
     try {
       await platform.invokeMethod<void>('setSecureMode', {'enable': enable});
     } catch (e) {

@@ -14,6 +14,8 @@ import 'core/services/notification_service.dart';
 import 'core/services/session_manager.dart';
 import 'model/user.dart';
 
+import 'firebase_options.dart';
+
 Future<StorageService> _initStorage() async {
   final storage = StorageService();
   try {
@@ -29,11 +31,13 @@ Future<StorageService> _initStorage() async {
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Initialisation Firebase (sécurisée — désactivée si google-services.json absent)
+  // Initialisation Firebase multiplateforme (générée par flutterfire)
   try {
-    await Firebase.initializeApp();
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
   } catch (e) {
-    if (kDebugMode) debugPrint('Firebase init skipped: $e');
+    if (kDebugMode) debugPrint('Firebase init error: $e');
   }
 
   final storage = await _initStorage();
@@ -105,7 +109,7 @@ class _DigitalPressAppState extends ConsumerState<DigitalPressApp> {
           data: MediaQuery.of(context).copyWith(
             textScaler: TextScaler.noScaling,
           ),
-          child: child!,
+          child: child ?? const SizedBox.shrink(),
         );
       },
     );

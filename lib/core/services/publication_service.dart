@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:digital_press/core/api/api_client.dart';
@@ -127,9 +128,11 @@ class PublicationService {
 
   /// Upload un fichier média (image, PDF, vidéo) sur le serveur.
   /// Retourne l'URL absolue du fichier accessible publiquement.
-  Future<String> uploadMedia(String filePath, String fileName) async {
+  Future<String> uploadMedia(String fileName, {String? filePath, Uint8List? bytes}) async {
     final formData = FormData.fromMap({
-      'file': await MultipartFile.fromFile(filePath, filename: fileName),
+      'file': bytes != null
+          ? MultipartFile.fromBytes(bytes, filename: fileName)
+          : await MultipartFile.fromFile(filePath!, filename: fileName),
     });
     final res = await _api.post(ApiConstants.mediaUpload, data: formData);
     return (res.data as Map<String, dynamic>)['url']?.toString() ?? '';
@@ -441,7 +444,7 @@ class PublisherPublicationsListNotifier
     }
   }
 
-  Future<void> createPublication(Map<String, dynamic> data) async {
+  Future<void> createPublication(dynamic data) async {
     try {
       final newPub = await _service.createPublication(data);
       state.whenData((list) {
@@ -452,7 +455,7 @@ class PublisherPublicationsListNotifier
     }
   }
 
-  Future<void> updatePublication(int id, Map<String, dynamic> data) async {
+  Future<void> updatePublication(int id, dynamic data) async {
     try {
       final updated = await _service.updatePublication(id, data);
       state.whenData((list) {

@@ -5,6 +5,7 @@ import '../../core/services/roadmap_service.dart';
 import '../../model/feature_item.dart';
 import '../../widgets/notification_bell_button.dart';
 import '../notifications/notifications_screen.dart';
+import '../../widgets/main_app_bar.dart';
 
 /// Page "Fonctionnalités à venir".
 ///
@@ -227,18 +228,44 @@ class _FeatureRoadmapScreenState extends ConsumerState<FeatureRoadmapScreen> {
     final isAdmin = user?.isAdmin ?? false;
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFC),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () => _showSuggestDialog(context, ref),
-        tooltip: 'Proposer une fonctionnalité',
-        backgroundColor: Colors.orange.shade700,
-        child: const Icon(Icons.add, size: 28),
+      backgroundColor: Colors.transparent,
+      floatingActionButton: Padding(
+        padding: const EdgeInsets.only(bottom: 90.0),
+        child: FloatingActionButton(
+          onPressed: () => _showSuggestDialog(context, ref),
+          tooltip: 'Proposer une fonctionnalité',
+          child: const Icon(Icons.add, size: 28),
+        ),
       ),
       body: RefreshIndicator(
         onRefresh: () async => ref.invalidate(roadmapListProvider),
         child: CustomScrollView(
           slivers: [
-            _buildAppBar(),
+            MainAppBar(
+              title: 'Roadmap',
+              showLogo: true,
+              extraAction: Container(
+                margin: const EdgeInsets.only(right: 4),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade200,
+                  shape: BoxShape.circle,
+                ),
+                child: IconButton(
+                  padding: const EdgeInsets.all(8),
+                  constraints: const BoxConstraints(),
+                  icon: Icon(
+                    _isGridView ? Icons.view_list_rounded : Icons.grid_view_rounded,
+                    color: const Color(0xFF0A2647),
+                    size: 20,
+                  ),
+                  onPressed: () {
+                    setState(() {
+                      _isGridView = !_isGridView;
+                    });
+                  },
+                ),
+              ),
+            ),
             featuresAsync.when(
               loading: () => const SliverToBoxAdapter(
                 child: Padding(
@@ -325,106 +352,6 @@ class _FeatureRoadmapScreenState extends ConsumerState<FeatureRoadmapScreen> {
     );
   }
 
-  Widget _buildAppBar() {
-    return SliverAppBar(
-      expandedHeight: 140.0,
-      floating: false,
-      pinned: true,
-      elevation: 0,
-      backgroundColor: const Color(0xFF0A2647),
-      automaticallyImplyLeading: false,
-      actions: [
-        IconButton(
-          icon: Icon(
-            _isGridView ? Icons.view_list_rounded : Icons.grid_view_rounded,
-            color: Colors.white,
-          ),
-          onPressed: () => setState(() => _isGridView = !_isGridView),
-        ),
-        NotificationBellButton(
-          color: Colors.white,
-          onPressed: () => Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => const NotificationsScreen()),
-          ),
-        ),
-        const SizedBox(width: 8),
-      ],
-      flexibleSpace: FlexibleSpaceBar(
-        titlePadding: const EdgeInsets.only(left: 20, bottom: 16),
-        title: const Text(
-          'Fonctionnalités à venir',
-          style: TextStyle(
-              color: Colors.white, fontWeight: FontWeight.w900, fontSize: 18),
-        ),
-        background: Container(
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [Color(0xFF0A2647), Color(0xFF144272)],
-            ),
-          ),
-          child: Stack(
-            children: [
-              Positioned(
-                right: -50,
-                top: -50,
-                child: Container(
-                  width: 180,
-                  height: 180,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: Colors.white.withAlpha(10),
-                  ),
-                ),
-              ),
-              Positioned(
-                left: -30,
-                bottom: -30,
-                child: Container(
-                  width: 120,
-                  height: 120,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: const Color(0xFF2C74B3).withAlpha(30),
-                  ),
-                ),
-              ),
-              // Logo + "DigitalPress" — même position que la page Accueil
-              Positioned(
-                left: 20,
-                top: 52,
-                child: Row(
-                  children: [
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(8),
-                      child: Image.asset(
-                        'assets/app_icon.png',
-                        width: 32,
-                        height: 32,
-                        fit: BoxFit.cover,
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    const Text(
-                      'DigitalPress',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w900,
-                        fontSize: 20,
-                        letterSpacing: -0.5,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
 
   Widget _buildFeatureCard(
     BuildContext context,
@@ -441,12 +368,13 @@ class _FeatureRoadmapScreenState extends ConsumerState<FeatureRoadmapScreen> {
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.grey.shade200, width: 1),
           boxShadow: [
             BoxShadow(
-              color: const Color(0xFF0A2647).withAlpha(8),
-              blurRadius: 15,
+              color: Colors.black.withAlpha(10),
+              blurRadius: 10,
               offset: const Offset(0, 4),
-            ),
+            )
           ],
         ),
         child: Column(
@@ -460,7 +388,7 @@ class _FeatureRoadmapScreenState extends ConsumerState<FeatureRoadmapScreen> {
                     style: const TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.w800,
-                      color: Color(0xFF0A2647),
+                      color: Colors.black87,
                     ),
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
@@ -469,7 +397,7 @@ class _FeatureRoadmapScreenState extends ConsumerState<FeatureRoadmapScreen> {
                 if (isAdmin)
                   GestureDetector(
                     onTap: () => _showAdminActions(context, ref, feature),
-                    child: const Icon(Icons.more_vert, size: 16),
+                    child: const Icon(Icons.more_vert, size: 16, color: Colors.grey),
                   ),
               ],
             ),
@@ -514,12 +442,13 @@ class _FeatureRoadmapScreenState extends ConsumerState<FeatureRoadmapScreen> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.grey.shade200, width: 1),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF0A2647).withAlpha(8),
-            blurRadius: 15,
+            color: Colors.black.withAlpha(10),
+            blurRadius: 10,
             offset: const Offset(0, 4),
-          ),
+          )
         ],
       ),
       child: Column(
@@ -533,13 +462,13 @@ class _FeatureRoadmapScreenState extends ConsumerState<FeatureRoadmapScreen> {
                   style: const TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w800,
-                    color: Color(0xFF0A2647),
+                    color: Colors.black87,
                   ),
                 ),
               ),
               if (isAdmin)
                 IconButton(
-                  icon: const Icon(Icons.more_vert, size: 20),
+                  icon: const Icon(Icons.more_vert, size: 20, color: Colors.grey),
                   onPressed: () => _showAdminActions(context, ref, feature),
                 ),
             ],

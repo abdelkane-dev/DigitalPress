@@ -39,49 +39,6 @@ String buildHealthStatusMessage({
   return 'Serveur disponible';
 }
 
-/// Intercepteur de retry avec backoff exponentiel — conçu pour les cold-starts de Render
-/// (le serveur peut mettre jusqu'à 50 s à répondre après un redémarrage automatique).
-class _RetryInterceptor extends Interceptor {
-  final Dio dio;
-  final int maxRetries;
-  final Duration initialDelay;
-
-  _RetryInterceptor({
-    required this.dio,
-    this.maxRetries = 3,
-    this.initialDelay = const Duration(seconds: 2),
-  });
-
-  @override
-  void onError(DioException err, ErrorInterceptorHandler handler) async {
-    // On ne retente que les erreurs réseau (timeout, connexion refusée), pas les 4xx/5xx
-    final isNetworkError = err.type == DioExceptionType.connectionTimeout ||
-        err.type == DioExceptionType.receiveTimeout ||
-        err.type == DioExceptionType.connectionError ||
-        err.type == DioExceptionType.sendTimeout;
-
-    final attempt = (err.requestOptions.extra['_retry_count'] as int?) ?? 0;
-
-    if (!isNetworkError || attempt >= maxRetries) {
-      return handler.next(err);
-    }
-
-    // Backoff exponentiel : 2s, 4s, 8s
-    final delay = initialDelay * (attempt + 1);
-    await Future.delayed(delay);
-
-    final options = err.requestOptions;
-    options.extra['_retry_count'] = attempt + 1;
-
-    try {
-      final response = await dio.fetch(options);
-      return handler.resolve(response);
-    } on DioException catch (retryErr) {
-      return handler.next(retryErr);
-    }
-  }
-}
-
 class ApiClient {
   late final Dio _dio;
 
@@ -91,15 +48,12 @@ class ApiClient {
     _dio = Dio(
       BaseOptions(
         baseUrl: baseUrl,
-        connectTimeout: const Duration(seconds: 15),
-        receiveTimeout: const Duration(seconds: 15),
+        connectTimeout: const Duration(seconds: 30),
+        receiveTimeout: const Duration(seconds: 30),
         contentType: 'application/json',
         headers: {'Accept': 'application/json'},
       ),
     );
-
-    // Retry pour les cold-starts Render (point 2 — problèmes de connexion)
-    _dio.interceptors.add(_RetryInterceptor(dio: _dio));
 
     // Le corps des requêtes/réponses peut contenir des données sensibles
     // (mots de passe, tokens JWT, informations de paiement) : ce journal
@@ -230,15 +184,23 @@ class ApiClient {
       );
     }
     if (e.response?.statusCode == 401) {
-      return const AuthFailure('Session expirée');
+      return const AuthFailure('Session expirée. Veuillez vous reconnecter.');
     }
     final data = e.response?.data;
     String message = 'Une erreur est survenue';
     if (data is Map) {
-      message = data['detail']?.toString() ??
-          data['message']?.toString() ??
-          data.values.first?.toString() ??
-          message;
+      if (data.containsKey('detail')) {
+        message = data['detail'].toString();
+      } else if (data.containsKey('message')) {
+        message = data['message'].toString();
+      } else if (data.isNotEmpty) {
+        final firstValue = data.values.first;
+        if (firstValue is List && firstValue.isNotEmpty) {
+          message = firstValue.first.toString();
+        } else {
+          message = firstValue.toString();
+        }
+      }
     }
     return ServerFailure(message);
   }

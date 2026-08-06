@@ -32,6 +32,7 @@ import 'package:digital_press/screens/poster/poster_profile_screen.dart';
 import 'package:digital_press/screens/profile/client_wallet_screen.dart';
 import 'package:digital_press/screens/profile/editeur_comptabilite_screen.dart';
 
+import 'package:digital_press/screens/profile/profile_screen.dart';
 import '../services/auth_service.dart';
 
 /// Utilitaire pour convertir un Stream en Listenable pour GoRouter.
@@ -113,6 +114,10 @@ final routerProvider = Provider<GoRouter>((ref) {
             scrollToComments: scrollToComments,
           );
         },
+      ),
+      GoRoute(
+        path: '/profile',
+        builder: (context, state) => const ProfileScreen(),
       ),
       GoRoute(
         path: '/profile/wallet',

@@ -1,11 +1,16 @@
-import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:logger/logger.dart';
 import '../api/api_client.dart';
 import '../../config/api_constants.dart';
+import '../utils/platform_helper.dart';
+
+// Imports conditionnels pour Firebase et notifications locales.
+// Ils sont toujours importables car les packages exposent des stubs,
+// mais on garde les guards à l'exécution pour éviter les crashs natifs.
+import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 /// Handler global pour les messages reçus quand l'app est fermée ou en arrière-plan.
 /// DOIT être une fonction de haut niveau (pas une méthode de classe).
@@ -52,11 +57,19 @@ final notificationServiceProvider = Provider<NotificationService>((ref) {
 ///   2. Obtenir le token FCM et l'enregistrer sur le backend.
 ///   3. Afficher une notification locale quand l'app est en premier plan.
 ///   4. Naviguer vers l'article concerné quand l'utilisateur tape la notification.
+///
+/// Compatibilité plateforme :
+///   - Android / iOS / macOS : support complet (Firebase + notifications locales)
+///   - Windows : Firebase Core ok, mais pas de Firebase Messaging ni notifications locales
+///   - Linux : aucun support Firebase
+///   - Web : Firebase Messaging ok, pas de notifications locales
 class NotificationService {
   final ApiClient _apiClient;
-  final _fcm = FirebaseMessaging.instance;
-  final _localNotifications = FlutterLocalNotificationsPlugin();
   final _logger = Logger();
+
+  // Initialisation lazy — null sur les plateformes non supportées.
+  FirebaseMessaging? _fcm;
+  FlutterLocalNotificationsPlugin? _localNotifications;
 
   NotificationService(this._apiClient);
 
@@ -73,36 +86,52 @@ class NotificationService {
   // Initialisation principale — appeler après la connexion de l'utilisateur.
   // ---------------------------------------------------------------------------
   Future<void> init() async {
+    // ── Vérification de la compatibilité plateforme ──────────────────────
+    if (!PlatformHelper.supportsFirebaseMessaging) {
+      _logger.w('[Notifications] Firebase Messaging non supporté sur cette plateforme.');
+      return;
+    }
+
+    _fcm = FirebaseMessaging.instance;
+
     // ── 0. Initialisation des notifications locales ────────────────────────
-    const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
-    const iosInit = DarwinInitializationSettings(
-      requestAlertPermission: true,
-      requestBadgePermission: true,
-      requestSoundPermission: true,
-    );
-    const initSettings = InitializationSettings(
-      android: androidInit,
-      iOS: iosInit,
-    );
+    if (PlatformHelper.supportsLocalNotifications) {
+      _localNotifications = FlutterLocalNotificationsPlugin();
 
-    await _localNotifications.initialize(
-      initSettings,
-      onDidReceiveNotificationResponse: (details) {
-        // L'utilisateur a tapé la notification quand l'app était en premier plan.
-        _navigateFromPayload(details.payload);
-      },
-    );
+      const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
+      const darwinInit = DarwinInitializationSettings(
+        requestAlertPermission: true,
+        requestBadgePermission: true,
+        requestSoundPermission: true,
+      );
+      // macOS utilise les mêmes settings que iOS (DarwinInitializationSettings).
+      const initSettings = InitializationSettings(
+        android: androidInit,
+        iOS: darwinInit,
+        macOS: darwinInit,
+      );
 
-    await _localNotifications
-        .resolvePlatformSpecificImplementation<
-            AndroidFlutterLocalNotificationsPlugin>()
-        ?.createNotificationChannel(_androidChannel);
+      await _localNotifications!.initialize(
+        initSettings,
+        onDidReceiveNotificationResponse: (details) {
+          _navigateFromPayload(details.payload);
+        },
+      );
+
+      // Création du canal Android (no-op sur les autres plateformes).
+      if (PlatformHelper.isAndroid) {
+        await _localNotifications!
+            .resolvePlatformSpecificImplementation<
+                AndroidFlutterLocalNotificationsPlugin>()
+            ?.createNotificationChannel(_androidChannel);
+      }
+    }
 
     // ── 1. Handler background (doit être enregistré très tôt) ─────────────
     FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
 
     // ── 2. Demande de permission ───────────────────────────────────────────
-    final settings = await _fcm.requestPermission(
+    final settings = await _fcm!.requestPermission(
       alert: true,
       badge: true,
       sound: true,
@@ -119,13 +148,13 @@ class NotificationService {
     _logger.i('[FCM] Permissions accordées.');
 
     // ── 3. Token FCM → enregistrement backend ─────────────────────────────
-    final token = await _fcm.getToken();
+    final token = await _fcm!.getToken();
     if (token != null) {
       await _registerTokenWithBackend(token);
     }
 
     // Renouvellement automatique du token (ex: réinstallation de l'app).
-    _fcm.onTokenRefresh.listen((newToken) async {
+    _fcm!.onTokenRefresh.listen((newToken) async {
       _logger.i('[FCM] Token renouvelé.');
       await _registerTokenWithBackend(newToken);
     });
@@ -136,10 +165,12 @@ class NotificationService {
       final notification = message.notification;
       if (notification == null) return;
 
+      if (_localNotifications == null) return; // Pas de notifications locales
+
       final articleId = message.data['article_id'];
       final payload = articleId != null ? '/article/$articleId' : null;
 
-      _localNotifications.show(
+      _localNotifications!.show(
         notification.hashCode,
         notification.title,
         notification.body,
@@ -154,6 +185,11 @@ class NotificationService {
             playSound: true,
           ),
           iOS: const DarwinNotificationDetails(
+            presentAlert: true,
+            presentBadge: true,
+            presentSound: true,
+          ),
+          macOS: const DarwinNotificationDetails(
             presentAlert: true,
             presentBadge: true,
             presentSound: true,
@@ -173,7 +209,7 @@ class NotificationService {
     });
 
     // ── 6. L'app a été FERMÉE puis relancée via une notification ──────────
-    final initialMessage = await _fcm.getInitialMessage();
+    final initialMessage = await _fcm!.getInitialMessage();
     if (initialMessage != null) {
       _logger.i('[FCM] App lancée via notification.');
       final articleId = initialMessage.data['article_id'];
@@ -190,9 +226,21 @@ class NotificationService {
   // ---------------------------------------------------------------------------
   Future<void> _registerTokenWithBackend(String token) async {
     try {
+      // Déterminer le type d'appareil pour le backend.
+      String deviceType = 'unknown';
+      if (PlatformHelper.isAndroid) {
+        deviceType = 'android';
+      } else if (PlatformHelper.isIOS) {
+        deviceType = 'ios';
+      } else if (PlatformHelper.isMacOS) {
+        deviceType = 'macos';
+      } else if (PlatformHelper.isWeb) {
+        deviceType = 'web';
+      }
+
       await _apiClient.post(
         ApiConstants.registerFcm,
-        data: {'token': token, 'device_type': 'android'},
+        data: {'token': token, 'device_type': deviceType},
       );
       _logger.i('[FCM] Token enregistré sur le backend.');
     } catch (e) {
@@ -213,13 +261,15 @@ class NotificationService {
   // Abonnement à un sujet FCM (ex: 'news').
   // ---------------------------------------------------------------------------
   Future<void> subscribeToTopic(String topic) async {
-    await _fcm.subscribeToTopic(topic);
+    if (_fcm == null) return;
+    await _fcm!.subscribeToTopic(topic);
     _logger.i('[FCM] Abonné au sujet : $topic');
   }
 
   /// Désabonnement d'un sujet FCM.
   Future<void> unsubscribeFromTopic(String topic) async {
-    await _fcm.unsubscribeFromTopic(topic);
+    if (_fcm == null) return;
+    await _fcm!.unsubscribeFromTopic(topic);
     _logger.i('[FCM] Désabonné du sujet : $topic');
   }
 }

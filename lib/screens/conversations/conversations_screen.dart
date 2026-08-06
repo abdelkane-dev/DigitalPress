@@ -3,8 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/services/conversation_service.dart';
 import '../../model/conversation.dart';
-import '../notifications/notifications_screen.dart';
-import '../../widgets/notification_bell_button.dart';
+import '../../widgets/main_app_bar.dart';
 
 /// Page "Mes Conversations" : remplace l'ancienne page "Favoris".
 /// Affiche, pour l'utilisateur connecté (Admin, Éditeur ou Lecteur — cette
@@ -97,12 +96,52 @@ class _ConversationsScreenState extends ConsumerState<ConversationsScreen> {
         : state.items.where((c) => c.title.toLowerCase().contains(query)).toList();
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFC),
+      backgroundColor: Colors.transparent,
       body: RefreshIndicator(
         onRefresh: () => ref.read(conversationListProvider.notifier).load(),
         child: CustomScrollView(
           slivers: [
-            _buildAppBar(state.items.where((c) => c.hasNewComments).length),
+            MainAppBar(
+              title: 'Conversations',
+              titleBadge: state.items.where((c) => c.hasNewComments).isNotEmpty
+                  ? Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.redAccent,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        '${state.items.where((c) => c.hasNewComments).length}',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    )
+                  : null,
+              extraAction: Container(
+                margin: const EdgeInsets.only(right: 4),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade200,
+                  shape: BoxShape.circle,
+                ),
+                child: IconButton(
+                  padding: const EdgeInsets.all(8),
+                  constraints: const BoxConstraints(),
+                  icon: Icon(
+                    _isGridView ? Icons.view_list_rounded : Icons.grid_view_rounded,
+                    color: const Color(0xFF0A2647),
+                    size: 20,
+                  ),
+                  onPressed: () {
+                    setState(() {
+                      _isGridView = !_isGridView;
+                    });
+                  },
+                ),
+              ),
+            ),
             SliverToBoxAdapter(child: _buildSearchBar()),
             if (state.isLoading && state.items.isEmpty)
               const SliverToBoxAdapter(
@@ -144,150 +183,23 @@ class _ConversationsScreenState extends ConsumerState<ConversationsScreen> {
     );
   }
 
-  Widget _buildAppBar(int unreadConversations) {
-    return SliverAppBar(
-      expandedHeight: 140.0,
-      floating: false,
-      pinned: true,
-      elevation: 0,
-      backgroundColor: const Color(0xFF0A2647),
-      automaticallyImplyLeading: false,
-      actions: [
-        IconButton(
-          icon: Icon(
-            _isGridView ? Icons.view_list_rounded : Icons.grid_view_rounded,
-            color: Colors.white,
-          ),
-          onPressed: () {
-            setState(() {
-              _isGridView = !_isGridView;
-            });
-          },
-        ),
-        NotificationBellButton(
-          color: Colors.white,
-          onPressed: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (context) => const NotificationsScreen(),
-              ),
-            );
-          },
-        ),
-        const SizedBox(width: 8),
-      ],
-      flexibleSpace: FlexibleSpaceBar(
-        titlePadding: const EdgeInsets.only(left: 20, bottom: 16),
-        title: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text(
-              'Mes Conversations',
-              style: TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w900,
-                fontSize: 19,
-              ),
-            ),
-            if (unreadConversations > 0) ...[
-              const SizedBox(width: 8),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: Colors.redAccent,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Text(
-                  '$unreadConversations',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-              ),
-            ],
-          ],
-        ),
-        background: Container(
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [Color(0xFF0A2647), Color(0xFF144272)],
-            ),
-          ),
-          child: Stack(
-            children: [
-              Positioned(
-                right: -40,
-                top: -40,
-                child: Container(
-                  width: 150,
-                  height: 150,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: Colors.white.withAlpha(10),
-                  ),
-                ),
-              ),
-              // Logo + "DigitalPress" — même position que la page Accueil
-              Positioned(
-                left: 20,
-                top: 52,
-                child: Row(
-                  children: [
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(8),
-                      child: Image.asset(
-                        'assets/app_icon.png',
-                        width: 32,
-                        height: 32,
-                        fit: BoxFit.cover,
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    const Text(
-                      'DigitalPress',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w900,
-                        fontSize: 20,
-                        letterSpacing: -0.5,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
 
   Widget _buildSearchBar() {
     return Container(
       margin: const EdgeInsets.fromLTRB(16, 16, 16, 4),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: Colors.grey.shade100,
         borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFF0A2647).withAlpha(10),
-            blurRadius: 20,
-            offset: const Offset(0, 4),
-          ),
-        ],
+        border: Border.all(color: Colors.grey.shade300, width: 1.5),
       ),
       child: TextField(
         controller: _searchController,
+        style: const TextStyle(color: Colors.black87),
         onChanged: (_) => setState(() {}),
         decoration: InputDecoration(
           hintText: 'Rechercher une conversation...',
-          hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 14),
-          prefixIcon: const Icon(Icons.search_rounded, color: Color(0xFF2C74B3)),
+          hintStyle: TextStyle(color: Colors.grey.shade500, fontSize: 14),
+          prefixIcon: const Icon(Icons.search_rounded, color: Color(0xFF336B82)),
           suffixIcon: _searchController.text.isNotEmpty
               ? IconButton(
                   icon: Icon(Icons.clear_rounded, color: Colors.grey.shade400),
@@ -384,7 +296,7 @@ class _ConversationsScreenState extends ConsumerState<ConversationsScreen> {
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
           decoration: BoxDecoration(
             color: Colors.white,
-            border: Border(bottom: BorderSide(color: Colors.grey.shade100, width: 1)),
+            border: Border(bottom: BorderSide(color: Colors.grey.shade200, width: 1)),
           ),
           child: Row(
             children: [
@@ -446,7 +358,7 @@ class _ConversationsScreenState extends ConsumerState<ConversationsScreen> {
                               fontWeight: conversation.hasNewComments
                                   ? FontWeight.w900
                                   : FontWeight.w700,
-                              color: const Color(0xFF0A2647),
+                              color: Colors.black87,
                             ),
                           ),
                         ),
@@ -456,7 +368,7 @@ class _ConversationsScreenState extends ConsumerState<ConversationsScreen> {
                           style: TextStyle(
                             fontSize: 11,
                             color: conversation.hasNewComments
-                                ? const Color(0xFF2C74B3)
+                                ? const Color(0xFF336B82)
                                 : Colors.grey.shade500,
                             fontWeight: conversation.hasNewComments
                                 ? FontWeight.w800
@@ -477,8 +389,8 @@ class _ConversationsScreenState extends ConsumerState<ConversationsScreen> {
                             style: TextStyle(
                               fontSize: 13,
                               color: conversation.hasNewComments
-                                  ? Colors.grey.shade800
-                                  : Colors.grey.shade500,
+                                  ? Colors.black87
+                                  : Colors.grey.shade600,
                               fontWeight: conversation.hasNewComments
                                   ? FontWeight.w600
                                   : FontWeight.w400,
@@ -535,12 +447,13 @@ class _ConversationsScreenState extends ConsumerState<ConversationsScreen> {
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: Colors.grey.shade200, width: 1),
           boxShadow: [
             BoxShadow(
-              color: const Color(0xFF0A2647).withAlpha(10),
-              blurRadius: 15,
+              color: Colors.black.withAlpha(10),
+              blurRadius: 10,
               offset: const Offset(0, 4),
-            ),
+            )
           ],
         ),
         child: Padding(
@@ -596,7 +509,7 @@ class _ConversationsScreenState extends ConsumerState<ConversationsScreen> {
                     style: TextStyle(
                       fontSize: 10,
                       color: conversation.hasNewComments
-                          ? const Color(0xFF2C74B3)
+                          ? const Color(0xFF336B82)
                           : Colors.grey.shade500,
                       fontWeight: conversation.hasNewComments
                           ? FontWeight.w800
@@ -620,7 +533,7 @@ class _ConversationsScreenState extends ConsumerState<ConversationsScreen> {
                         fontWeight: conversation.hasNewComments
                             ? FontWeight.w900
                             : FontWeight.w700,
-                        color: const Color(0xFF0A2647),
+                        color: Colors.black87,
                       ),
                     ),
                     const SizedBox(height: 2),
@@ -632,8 +545,8 @@ class _ConversationsScreenState extends ConsumerState<ConversationsScreen> {
                       style: TextStyle(
                         fontSize: 12,
                         color: conversation.hasNewComments
-                            ? Colors.grey.shade800
-                            : Colors.grey.shade500,
+                            ? Colors.black87
+                            : Colors.grey.shade600,
                         fontWeight: conversation.hasNewComments
                             ? FontWeight.w600
                             : FontWeight.w400,

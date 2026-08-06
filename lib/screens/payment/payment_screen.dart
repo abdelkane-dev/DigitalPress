@@ -111,6 +111,7 @@ class PaymentScreen extends ConsumerStatefulWidget {
   final String paymentMethodName;
   final int? abonnementId;
   final bool isSubscription;
+  final bool isResellRight;
 
   const PaymentScreen({
     super.key,
@@ -121,6 +122,7 @@ class PaymentScreen extends ConsumerStatefulWidget {
     required this.paymentMethodName,
     this.abonnementId,
     this.isSubscription = false,
+    this.isResellRight = false,
   });
 
   @override
@@ -191,6 +193,8 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
         return const Color(0xFF8B5CF6);
       case PaymentMethodType.stripe:
         return const Color(0xFF635BFF);
+      case PaymentMethodType.simulation:
+        return Colors.green.shade600;
     }
   }
 
@@ -205,6 +209,8 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
         return Icons.account_balance_wallet_rounded;
       case PaymentMethodType.stripe:
         return Icons.credit_card_rounded;
+      case PaymentMethodType.simulation:
+        return Icons.bug_report_rounded;
     }
   }
 
@@ -1166,6 +1172,7 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
             amount: widget.price,
             method: widget.paymentMethod,
             isSubscription: widget.isSubscription,
+            isResellRight: widget.isResellRight,
           );
 
       if (!mounted) return;

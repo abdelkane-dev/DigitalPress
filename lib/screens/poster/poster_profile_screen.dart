@@ -1,19 +1,21 @@
-﻿import 'package:flutter/material.dart';
+import 'dart:io';
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import '../../core/api/api_client.dart';
+import '../../core/services/auth_service.dart';
 
 /// Page publique du profil d'un éditeur DigitalPress.
-/// Accessible depuis la fiche d'un article — lecture seule, design premium.
-/// Si [publisherId] est null, affiche et permet d'éditer le propre profil de l'éditeur connecté.
+/// Design inspiré de TikTok (minimaliste, axé créateur).
 class PosterProfileScreen extends ConsumerStatefulWidget {
   final int? publisherId;
-
   const PosterProfileScreen({super.key, this.publisherId});
 
   @override
-  ConsumerState<PosterProfileScreen> createState() =>
-      _PosterProfileScreenState();
+  ConsumerState<PosterProfileScreen> createState() => _PosterProfileScreenState();
 }
 
 class _PosterProfileScreenState extends ConsumerState<PosterProfileScreen> {
@@ -83,6 +85,7 @@ class _PosterProfileScreenState extends ConsumerState<PosterProfileScreen> {
       );
       _profile = response.data as Map<String, dynamic>;
       if (mounted) {
+        Navigator.pop(context); // Fermer le bottom sheet
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Profil mis à jour avec succès.')),
         );
@@ -96,6 +99,34 @@ class _PosterProfileScreenState extends ConsumerState<PosterProfileScreen> {
     }
   }
 
+  Future<void> _pickAndUploadAvatar() async {
+    final picker = ImagePicker();
+    final xfile = await picker.pickImage(source: ImageSource.gallery, imageQuality: 80);
+    if (xfile == null) return;
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Mise à jour de la photo en cours...')),
+      );
+    }
+
+    try {
+      final authService = ref.read(authServiceProvider);
+      await authService.updateProfile(avatarFile: xfile);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Photo de profil mise à jour avec succès!')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erreur lors de la mise à jour : $e')),
+        );
+      }
+    }
+  }
+
   bool get _isPublicView => widget.publisherId != null;
 
   String _initials(String name) {
@@ -105,531 +136,551 @@ class _PosterProfileScreenState extends ConsumerState<PosterProfileScreen> {
     return name.substring(0, name.length.clamp(0, 2)).toUpperCase();
   }
 
+  void _openEditSheet() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: const Color(0xFFFFF7ED),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setStateSheet) {
+            return Padding(
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.of(ctx).viewInsets.bottom,
+                left: 20,
+                right: 20,
+                top: 24,
+              ),
+              child: Form(
+                key: _formKey,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text(
+                        'Modifier le profil',
+                        style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black87),
+                      ),
+                      const SizedBox(height: 24),
+                      // Private stats
+                      if (!_isPublicView) ...[
+                        Container(
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: Colors.orange.shade50,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: Colors.orange.shade200),
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceAround,
+                            children: [
+                              _buildPrivateStat('Solde', '${_profile?['solde'] ?? 0} FCFA'),
+                              _buildPrivateStat('Gagné', '${_profile?['total_earned'] ?? 0} FCFA'),
+                              _buildPrivateStat('Commission', '${_profile?['commission_rate'] ?? 0}%'),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 24),
+                      ],
+                      _field(_companyController, "Nom de l'entreprise", Icons.business_rounded,
+                          validator: (v) => (v == null || v.trim().isEmpty) ? 'Champ requis' : null),
+                      const SizedBox(height: 14),
+                      _field(_websiteController, 'Site web', Icons.language_rounded, type: TextInputType.url),
+                      const SizedBox(height: 14),
+                      _field(_addressController, 'Adresse', Icons.location_on_rounded),
+                      const SizedBox(height: 14),
+                      _field(_siretController, "SIRET", Icons.badge_outlined),
+                      const SizedBox(height: 14),
+                      _field(_bioController, 'Biographie', Icons.info_outline_rounded, lines: 3),
+                      const SizedBox(height: 24),
+                      SizedBox(
+                        width: double.infinity,
+                        height: 52,
+                        child: ElevatedButton(
+                          onPressed: _saving ? null : () async {
+                            setStateSheet(() => _saving = true);
+                            await _save();
+                            if (mounted) setStateSheet(() => _saving = false);
+                          },
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFFEA580C),
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                          ),
+                          child: _saving
+                              ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                              : const Text('Enregistrer', style: TextStyle(fontWeight: FontWeight.bold)),
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  void _openSettingsSheet() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: 12),
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2)),
+              ),
+              const SizedBox(height: 16),
+              const Text('Paramètres', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87)),
+              const SizedBox(height: 16),
+              ListTile(
+                leading: const Icon(Icons.bar_chart_rounded, color: Colors.black87),
+                title: const Text('Statistiques détaillées', style: TextStyle(fontWeight: FontWeight.w600)),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  context.push('/poster/statistics');
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.account_balance_wallet_rounded, color: Colors.black87),
+                title: const Text('Comptabilité et revenus', style: TextStyle(fontWeight: FontWeight.w600)),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  context.push('/poster/comptabilite');
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.share_rounded, color: Colors.black87),
+                title: const Text('Partager le profil', style: TextStyle(fontWeight: FontWeight.w600)),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Lien copié dans le presse-papier')));
+                },
+              ),
+              const SizedBox(height: 16),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildPrivateStat(String label, String value) {
+    return Column(
+      children: [
+        Text(value, style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFFEA580C))),
+        Text(label, style: TextStyle(fontSize: 11, color: Colors.orange.shade800)),
+      ],
+    );
+  }
+
+  Widget _field(TextEditingController c, String label, IconData icon, {int lines = 1, TextInputType? type, String? Function(String?)? validator}) {
+    return TextFormField(
+      controller: c,
+      maxLines: lines,
+      keyboardType: type,
+      validator: validator,
+      style: const TextStyle(fontSize: 14),
+      decoration: InputDecoration(
+        labelText: label,
+        prefixIcon: Icon(icon, color: Colors.grey.shade400, size: 20),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey.shade300)),
+        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey.shade300)),
+        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFFEA580C), width: 1.5)),
+        filled: true,
+        fillColor: Colors.grey.shade50,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_loading) {
-      return const Scaffold(
-        backgroundColor: Color(0xFFF8FAFC),
-        body: Center(child: CircularProgressIndicator()),
-      );
+      return const Scaffold(backgroundColor: Color(0xFFFFF7ED), body: Center(child: CircularProgressIndicator(color: Color(0xFFEA580C))));
     }
     if (_error != null) {
       return Scaffold(
-        backgroundColor: const Color(0xFFF8FAFC),
-        appBar: AppBar(
-          title: const Text('Profil éditeur'),
-          backgroundColor: const Color(0xFF0A2647),
-          foregroundColor: Colors.white,
-        ),
+        backgroundColor: const Color(0xFFFFF7ED),
+        appBar: AppBar(title: const Text('Profil'), backgroundColor: const Color(0xFFFFF7ED), foregroundColor: Colors.black),
         body: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(Icons.error_outline, size: 64, color: Colors.redAccent),
-                const SizedBox(height: 16),
-                Text('Impossible de charger le profil\n$_error',
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(fontSize: 15)),
-                const SizedBox(height: 20),
-                ElevatedButton.icon(
-                    onPressed: _load,
-                    icon: const Icon(Icons.refresh),
-                    label: const Text('Réessayer')),
-              ],
-            ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.error_outline, size: 48, color: Colors.red),
+              const SizedBox(height: 16),
+              Text('Erreur\n$_error', textAlign: TextAlign.center),
+              TextButton(onPressed: _load, child: const Text('Réessayer')),
+            ],
           ),
         ),
       );
     }
-    return _isPublicView ? _buildPublicView() : _buildEditView();
-  }
 
-  // ── VUE PUBLIQUE — design premium ──────────────────────────────────────────
-  Widget _buildPublicView() {
     final data = _profile!;
     final username = data['username']?.toString() ?? '';
     final companyName = data['company_name']?.toString() ?? '';
-    final website = data['website']?.toString() ?? '';
-    final address = data['address']?.toString() ?? '';
-    final siret = data['siret']?.toString() ?? '';
     final bio = data['bio']?.toString() ?? '';
+    final website = data['website']?.toString() ?? '';
     final isActive = data['is_active'] == true;
     final totalArticles = data['total_articles']?.toString() ?? '0';
     final publishedArticles = data['published_articles']?.toString() ?? '0';
     final totalViews = data['total_views']?.toString() ?? '0';
     final displayName = companyName.isNotEmpty ? companyName : username;
     final initials = _initials(displayName);
+    
+    final currentUser = ref.watch(authStateProvider).value;
+    final avatarUrl = !_isPublicView ? currentUser?.photoUrl : data['avatar']?.toString();
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFC),
-      body: CustomScrollView(
-        slivers: [
-          SliverAppBar(
-            expandedHeight: 280,
-            pinned: true,
-            elevation: 0,
-            backgroundColor: const Color(0xFF0A2647),
-            foregroundColor: Colors.white,
-            flexibleSpace: FlexibleSpaceBar(
-              background: Container(
-                decoration: const BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [Color(0xFF0A2647), Color(0xFF2C74B3)],
-                  ),
-                ),
-                child: Stack(
+      backgroundColor: const Color(0xFFFFF7ED),
+      appBar: AppBar(
+        backgroundColor: const Color(0xFFFFF7ED),
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        iconTheme: const IconThemeData(color: Colors.black87),
+        title: Text(
+          displayName,
+          style: const TextStyle(color: Colors.black87, fontWeight: FontWeight.bold, fontSize: 16),
+        ),
+        centerTitle: true,
+        actions: [
+          if (!_isPublicView)
+            IconButton(
+              icon: const Icon(Icons.menu_rounded),
+              onPressed: _openSettingsSheet,
+            ),
+        ],
+      ),
+      body: DefaultTabController(
+        length: 2,
+        child: NestedScrollView(
+          headerSliverBuilder: (context, _) {
+            return [
+              SliverToBoxAdapter(
+                child: Column(
                   children: [
-                    Positioned(
-                      right: -60,
-                      top: -60,
-                      child: Container(
-                        width: 220,
-                        height: 220,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: Colors.white.withAlpha(12),
-                        ),
-                      ),
-                    ),
-                    Positioned(
-                      left: -40,
-                      bottom: -40,
-                      child: Container(
-                        width: 160,
-                        height: 160,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: const Color(0xFF2C74B3).withAlpha(40),
-                        ),
-                      ),
-                    ),
-                    Positioned(
-                      bottom: 0,
-                      left: 0,
-                      right: 0,
-                      child: Padding(
-                        padding: const EdgeInsets.fromLTRB(24, 0, 24, 28),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.center,
-                          children: [
-                            Container(
-                              width: 96,
-                              height: 96,
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                gradient: const LinearGradient(
-                                  colors: [Color(0xFF2C74B3), Color(0xFF0A2647)],
-                                ),
-                                border: Border.all(color: Colors.white, width: 3),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black.withAlpha(60),
-                                    blurRadius: 20,
-                                    offset: const Offset(0, 8),
-                                  ),
-                                ],
-                              ),
-                              child: Center(
-                                child: Text(
-                                  initials,
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 32,
-                                    fontWeight: FontWeight.w900,
-                                    letterSpacing: -1,
-                                  ),
-                                ),
-                              ),
+                    Stack(
+                      clipBehavior: Clip.none,
+                      alignment: Alignment.bottomCenter,
+                      children: [
+                        // Banner
+                        Container(
+                          height: 140,
+                          width: double.infinity,
+                          decoration: const BoxDecoration(
+                            gradient: LinearGradient(
+                              colors: [Color(0xFFEA580C), Color(0xFFFFEDD5)],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
                             ),
-                            const SizedBox(height: 14),
-                            Text(
-                              displayName,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 22,
-                                fontWeight: FontWeight.w900,
-                                letterSpacing: -0.5,
-                              ),
-                              textAlign: TextAlign.center,
-                            ),
-                            if (username.isNotEmpty && companyName.isNotEmpty) ...[
-                              const SizedBox(height: 4),
-                              Text(
-                                '@$username',
-                                style: TextStyle(color: Colors.white.withAlpha(180), fontSize: 14),
-                              ),
-                            ],
-                            const SizedBox(height: 10),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
-                              decoration: BoxDecoration(
-                                color: isActive ? Colors.green.withAlpha(40) : Colors.red.withAlpha(40),
-                                borderRadius: BorderRadius.circular(20),
-                                border: Border.all(
-                                  color: isActive ? Colors.green.shade300 : Colors.red.shade300,
+                          ),
+                        ),
+                        // Avatar
+                        Positioned(
+                          bottom: -48,
+                          child: Stack(
+                            children: [
+                              Container(
+                                width: 100,
+                                height: 100,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  color: Colors.white,
+                                  border: Border.all(color: const Color(0xFFFFF7ED), width: 4),
+                                  boxShadow: const [
+                                    BoxShadow(color: Colors.black12, blurRadius: 10, offset: Offset(0, 4))
+                                  ],
+                                ),
+                                child: CircleAvatar(
+                                  backgroundColor: Colors.grey.shade200,
+                                  backgroundImage: (avatarUrl != null && avatarUrl.isNotEmpty)
+                                      ? CachedNetworkImageProvider(avatarUrl)
+                                      : null,
+                                  child: (avatarUrl == null || avatarUrl.isEmpty)
+                                      ? Text(
+                                          initials,
+                                          style: const TextStyle(fontSize: 34, fontWeight: FontWeight.bold, color: Colors.black54),
+                                        )
+                                      : null,
                                 ),
                               ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(
-                                    isActive ? Icons.verified_rounded : Icons.pause_circle_outline,
-                                    size: 14,
-                                    color: isActive ? Colors.green.shade300 : Colors.red.shade300,
-                                  ),
-                                  const SizedBox(width: 5),
-                                  Text(
-                                    isActive ? 'Éditeur vérifié' : 'Compte suspendu',
-                                    style: TextStyle(
-                                      color: isActive ? Colors.green.shade200 : Colors.red.shade200,
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w700,
+                              if (!_isPublicView)
+                                Positioned(
+                                  bottom: 0,
+                                  right: 0,
+                                  child: GestureDetector(
+                                    onTap: _pickAndUploadAvatar,
+                                    child: Container(
+                                      padding: const EdgeInsets.all(6),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFFEA580C),
+                                        shape: BoxShape.circle,
+                                        border: Border.all(color: const Color(0xFFFFF7ED), width: 2),
+                                      ),
+                                      child: const Icon(Icons.camera_alt_rounded, color: Colors.white, size: 18),
                                     ),
                                   ),
-                                ],
-                              ),
+                                ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 56),
+                    // @Username
+                    Text(
+                      '@$username',
+                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Colors.black87),
+                    ),
+                    if (!isActive) ...[
+                      const SizedBox(height: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.red.shade50,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: Colors.red.shade200),
+                        ),
+                        child: Text('Compte suspendu', style: TextStyle(fontSize: 12, color: Colors.red.shade700, fontWeight: FontWeight.bold)),
+                      ),
+                    ],
+                    const SizedBox(height: 16),
+                    // Stats Row
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        _buildStatColumn(totalArticles, 'Articles'),
+                        _buildStatDivider(),
+                        _buildStatColumn(publishedArticles, 'Publiés'),
+                        _buildStatDivider(),
+                        _buildStatColumn(totalViews, 'Vues'),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    // Action Buttons
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        if (_isPublicView) ...[
+                          _buildButton(
+                            text: "S'abonner",
+                            color: const Color(0xFFEA580C),
+                            textColor: Colors.white,
+                            onTap: () {
+                              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Fonctionnalité à venir')));
+                            },
+                          ),
+                          const SizedBox(width: 8),
+                          _buildIconButton(Icons.camera_alt_outlined),
+                        ] else ...[
+                          _buildButton(
+                            text: 'Modifier le profil',
+                            color: Colors.grey.shade100,
+                            textColor: Colors.black87,
+                            onTap: _openEditSheet,
+                          ),
+                          const SizedBox(width: 8),
+                          _buildButton(
+                            text: 'Partager le profil',
+                            color: Colors.grey.shade100,
+                            textColor: Colors.black87,
+                            onTap: () {
+                              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Lien copié')));
+                            },
+                          ),
+                        ]
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    // Bio
+                    if (bio.isNotEmpty) ...[
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 32),
+                        child: Text(
+                          bio,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(fontSize: 14, color: Colors.black87),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                    ],
+                    // Link
+                    if (website.isNotEmpty) ...[
+                      GestureDetector(
+                        onTap: () {
+                           Clipboard.setData(ClipboardData(text: website));
+                           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Lien copié')));
+                        },
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.link, size: 16, color: Colors.grey.shade600),
+                            const SizedBox(width: 4),
+                            Text(
+                              website.length > 30 ? '${website.substring(0, 30)}...' : website,
+                              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF1E293B)),
                             ),
                           ],
                         ),
                       ),
+                      const SizedBox(height: 12),
+                    ],
+                    // Tab Bar
+                    const Divider(height: 1),
+                    TabBar(
+                      indicatorColor: Colors.black87,
+                      labelColor: Colors.black87,
+                      unselectedLabelColor: Colors.grey.shade400,
+                      tabs: const [
+                        Tab(icon: Icon(Icons.grid_view_rounded)),
+                        Tab(icon: Icon(Icons.lock_outline_rounded)),
+                      ],
                     ),
                   ],
                 ),
               ),
-            ),
-          ),
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Stats
-                  Row(
-                    children: [
-                      Expanded(child: _StatCard(value: totalArticles, label: 'Articles', icon: Icons.article_rounded, color: const Color(0xFF0A2647))),
-                      const SizedBox(width: 12),
-                      Expanded(child: _StatCard(value: publishedArticles, label: 'Publiés', icon: Icons.publish_rounded, color: const Color(0xFF2C74B3))),
-                      const SizedBox(width: 12),
-                      Expanded(child: _StatCard(value: totalViews, label: 'Vues', icon: Icons.visibility_rounded, color: Color(0xFFEA580C))),
-                    ],
-                  ),
-                  const SizedBox(height: 24),
-
-                  // Bio
-                  if (bio.isNotEmpty) ...[
-                    _sectionTitle('À propos', Icons.info_outline_rounded),
-                    const SizedBox(height: 10),
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(18),
-                      decoration: _cardDeco(),
-                      child: Text(bio, style: const TextStyle(fontSize: 15, height: 1.65, color: Color(0xFF334155))),
-                    ),
-                    const SizedBox(height: 24),
-                  ],
-
-                  // Coordonnées
-                  _sectionTitle('Coordonnées', Icons.contact_page_outlined),
-                  const SizedBox(height: 10),
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(vertical: 8),
-                    decoration: _cardDeco(),
-                    child: Column(
-                      children: [
-                        if (website.isNotEmpty)
-                          _infoTile(Icons.language_rounded, const Color(0xFF2C74B3), 'Site web', website, isLink: true),
-                        if (address.isNotEmpty)
-                          _infoTile(Icons.location_on_rounded, const Color(0xFFEA580C), 'Adresse', address),
-                        if (siret.isNotEmpty)
-                          _infoTile(Icons.badge_outlined, Colors.teal, 'SIRET / Enregistrement', siret),
-                        if (website.isEmpty && address.isEmpty && siret.isEmpty)
-                          const Padding(
-                            padding: EdgeInsets.all(16),
-                            child: Text('Aucune coordonnée publique disponible.', style: TextStyle(color: Colors.grey)),
+            ];
+          },
+          body: TabBarView(
+            children: [
+              // Tab 1: Articles grid (placeholder)
+              (int.tryParse(publishedArticles) ?? 0) > 0
+                  ? GridView.builder(
+                      padding: const EdgeInsets.all(2),
+                      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: 3,
+                        crossAxisSpacing: 2,
+                        mainAxisSpacing: 2,
+                        childAspectRatio: 0.75, // Format vertical
+                      ),
+                      itemCount: int.tryParse(publishedArticles) ?? 0,
+                      itemBuilder: (context, index) {
+                        return Container(
+                          color: Colors.grey.shade200,
+                          child: Stack(
+                            fit: StackFit.expand,
+                            children: [
+                              Center(child: Icon(Icons.article_rounded, color: Colors.grey.shade300, size: 40)),
+                              Positioned(
+                                bottom: 4,
+                                left: 4,
+                                child: Row(
+                                  children: [
+                                    const Icon(Icons.play_arrow_outlined, color: Colors.white, size: 16),
+                                    const SizedBox(width: 2),
+                                    Text('${(index * 123) + 42}', style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+                                  ],
+                                ),
+                              ),
+                            ],
                           ),
-                      ],
+                        );
+                      },
+                    )
+                  : Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.article_outlined, size: 48, color: Colors.grey.shade300),
+                          const SizedBox(height: 16),
+                          Text(
+                            'Aucun article publié',
+                            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.grey.shade600),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 32),
-
-                  // Footer
-                  Center(
-                    child: Column(
-                      children: [
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(8),
-                          child: Image.asset('assets/app_icon.png', width: 36, height: 36, fit: BoxFit.cover),
-                        ),
-                        const SizedBox(height: 6),
-                        Text('Éditeur sur DigitalPress', style: TextStyle(fontSize: 12, color: Colors.grey.shade500)),
-                      ],
+              // Tab 2: Private (placeholder)
+              Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.lock_outline, size: 48, color: Colors.grey.shade300),
+                    const SizedBox(height: 16),
+                    Text(
+                      'Contenu privé',
+                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.grey.shade600),
                     ),
-                  ),
-                  const SizedBox(height: 20),
-                ],
+                  ],
+                ),
               ),
-            ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
 
-  Widget _sectionTitle(String title, IconData icon) {
-    return Row(
+  Widget _buildStatColumn(String count, String label) {
+    return Column(
       children: [
-        Icon(icon, size: 18, color: const Color(0xFF0A2647)),
-        const SizedBox(width: 8),
-        Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: Color(0xFF0A2647))),
+        Text(
+          count,
+          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black87),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          label,
+          style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+        ),
       ],
     );
   }
 
-  Widget _infoTile(IconData icon, Color color, String label, String value, {bool isLink = false}) {
-    return InkWell(
-      onTap: isLink
-          ? () {
-              Clipboard.setData(ClipboardData(text: value));
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('URL copiée dans le presse-papier'), duration: Duration(seconds: 2)),
-              );
-            }
-          : null,
-      borderRadius: BorderRadius.circular(12),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(color: color.withAlpha(20), borderRadius: BorderRadius.circular(10)),
-              child: Icon(icon, size: 20, color: color),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(label, style: TextStyle(fontSize: 12, color: Colors.grey.shade500, fontWeight: FontWeight.w600)),
-                  const SizedBox(height: 2),
-                  Text(
-                    value,
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: isLink ? const Color(0xFF2C74B3) : const Color(0xFF1E293B),
-                      fontWeight: FontWeight.w600,
-                      decoration: isLink ? TextDecoration.underline : TextDecoration.none,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            if (isLink) Icon(Icons.copy_rounded, size: 16, color: Colors.grey.shade400),
-          ],
-        ),
-      ),
-    );
-  }
-
-  BoxDecoration _cardDeco() => BoxDecoration(
-    color: Colors.white,
-    borderRadius: BorderRadius.circular(18),
-    boxShadow: [BoxShadow(color: const Color(0xFF0A2647).withAlpha(8), blurRadius: 20, offset: const Offset(0, 6))],
-  );
-
-  // ── VUE ÉDITION (propre profil) ────────────────────────────────────────────
-  Widget _buildEditView() {
-    final data = _profile ?? {};
-    final solde = data['solde']?.toString() ?? '0';
-    final totalEarned = data['total_earned']?.toString() ?? '0';
-    final commission = data['commission_rate']?.toString() ?? '0';
-    final isActive = data['is_active'] == true;
-
-    return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFC),
-      appBar: AppBar(
-        title: const Text('Mon profil éditeur'),
-        centerTitle: true,
-        backgroundColor: const Color(0xFF0A2647),
-        foregroundColor: Colors.white,
-        elevation: 0,
-      ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          Container(
-            padding: const EdgeInsets.all(18),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(colors: [Colors.orange.shade700, Colors.orange.shade500]),
-              borderRadius: BorderRadius.circular(18),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Icon(isActive ? Icons.check_circle : Icons.pause_circle_filled, color: Colors.white),
-                    const SizedBox(width: 8),
-                    Text(
-                      isActive ? 'Compte actif' : 'Compte suspendu',
-                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    _MiniInfoPill(label: 'Solde', value: '$solde FCFA'),
-                    const SizedBox(width: 10),
-                    _MiniInfoPill(label: 'Gagné', value: '$totalEarned FCFA'),
-                    const SizedBox(width: 10),
-                    _MiniInfoPill(label: 'Commission', value: '$commission%'),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  "Ces valeurs sont gérées exclusivement par l'administration.",
-                  style: TextStyle(fontSize: 11, color: Colors.white.withAlpha(180)),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 24),
-          const Text('Informations publiques',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: Color(0xFF0A2647))),
-          const SizedBox(height: 14),
-          Form(
-            key: _formKey,
-            child: Column(
-              children: [
-                _field(_companyController, "Nom de l'entreprise / du journal", Icons.business_rounded,
-                    validator: (v) => (v == null || v.trim().isEmpty) ? 'Champ requis' : null),
-                const SizedBox(height: 14),
-                _field(_websiteController, 'Site web', Icons.language_rounded, type: TextInputType.url),
-                const SizedBox(height: 14),
-                _field(_addressController, 'Adresse', Icons.location_on_rounded),
-                const SizedBox(height: 14),
-                _field(_siretController, "SIRET / Numéro d'enregistrement", Icons.badge_outlined),
-                const SizedBox(height: 14),
-                _field(_bioController, 'Description / bio publique', Icons.info_outline_rounded, lines: 4),
-                const SizedBox(height: 24),
-                SizedBox(
-                  width: double.infinity,
-                  height: 52,
-                  child: ElevatedButton.icon(
-                    onPressed: _saving ? null : _save,
-                    icon: _saving
-                        ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                        : const Icon(Icons.save_outlined),
-                    label: Text(_saving ? 'Enregistrement...' : 'Enregistrer'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF0A2647),
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _field(
-    TextEditingController c,
-    String label,
-    IconData icon, {
-    int lines = 1,
-    TextInputType? type,
-    String? Function(String?)? validator,
-  }) {
-    return TextFormField(
-      controller: c,
-      maxLines: lines,
-      keyboardType: type,
-      validator: validator,
-      decoration: InputDecoration(
-        labelText: label,
-        prefixIcon: Icon(icon, color: const Color(0xFF2C74B3)),
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
-          borderSide: const BorderSide(color: Color(0xFF2C74B3), width: 2),
-        ),
-        filled: true,
-        fillColor: Colors.white,
-      ),
-    );
-  }
-}
-
-// ─── Widgets auxiliaires ──────────────────────────────────────────────────────
-
-class _StatCard extends StatelessWidget {
-  final String value;
-  final String label;
-  final IconData icon;
-  final Color color;
-
-  const _StatCard({required this.value, required this.label, required this.icon, required this.color});
-
-  @override
-  Widget build(BuildContext context) {
+  Widget _buildStatDivider() {
     return Container(
-      padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [BoxShadow(color: color.withAlpha(20), blurRadius: 16, offset: const Offset(0, 4))],
-      ),
-      child: Column(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(color: color.withAlpha(20), shape: BoxShape.circle),
-            child: Icon(icon, size: 20, color: color),
-          ),
-          const SizedBox(height: 8),
-          Text(value, style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: color)),
-          Text(label, style: TextStyle(fontSize: 11, color: Colors.grey.shade600, fontWeight: FontWeight.w600)),
-        ],
+      height: 16,
+      width: 1,
+      margin: const EdgeInsets.symmetric(horizontal: 24),
+      color: Colors.grey.shade300,
+    );
+  }
+
+  Widget _buildButton({required String text, required Color color, required Color textColor, required VoidCallback onTap}) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
+        decoration: BoxDecoration(
+          color: color,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Text(
+          text,
+          style: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 14),
+        ),
       ),
     );
   }
-}
 
-class _MiniInfoPill extends StatelessWidget {
-  final String label;
-  final String value;
-
-  const _MiniInfoPill({required this.label, required this.value});
-
-  @override
-  Widget build(BuildContext context) {
-    return Expanded(
+  Widget _buildIconButton(IconData icon) {
+    return InkWell(
+      onTap: () {},
+      borderRadius: BorderRadius.circular(8),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        padding: const EdgeInsets.all(8),
         decoration: BoxDecoration(
-          color: Colors.white.withAlpha(30),
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: Colors.white.withAlpha(60)),
+          color: Colors.grey.shade100,
+          borderRadius: BorderRadius.circular(8),
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(label, style: TextStyle(fontSize: 10, color: Colors.white.withAlpha(180))),
-            Text(value, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.white)),
-          ],
-        ),
+        child: Icon(icon, color: Colors.black87, size: 20),
       ),
     );
   }

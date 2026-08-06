@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
 import 'package:path_provider/path_provider.dart';
@@ -143,6 +144,12 @@ class ReaderViewModel extends StateNotifier<ReaderState> {
   }
 
   Future<void> _cacheFileInBackground(int id, String url) async {
+    if (kIsWeb) {
+      if (mounted) {
+        state = state.copyWith(isLoading: false);
+      }
+      return;
+    }
     try {
       final appDir = await getApplicationDocumentsDirectory();
       final localPath = '${appDir.path}/cached_journal_$id.pdf';
@@ -182,6 +189,7 @@ class ReaderViewModel extends StateNotifier<ReaderState> {
   }
 
   Future<void> _checkDownloadStatus() async {
+    if (kIsWeb) return;
     final path = await _downloadService.getDownloadLocation(journalId);
     if (path != null) {
       // Vérifier si le fichier existe toujours
