@@ -1,3 +1,5 @@
+import logging
+
 from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from django.contrib.auth.password_validation import validate_password
@@ -5,6 +7,8 @@ from .models import User, PublisherProfile, PosterWarning, PasswordResetCode
 from django.core.files.storage import default_storage
 from django.conf import settings
 from django.db import models
+
+logger = logging.getLogger('apps')
 
 class AvatarField(serializers.Field):
     def to_representation(self, value):
@@ -188,6 +192,8 @@ class RegisterSerializer(serializers.ModelSerializer):
             name=validated_data.get('name', ''),
             phone=validated_data.get('phone', ''),
             role=validated_data.get('role', 'reader'),
+            billing_address='',
+            billing_phone='',
         )
         if user.role == 'publisher':
             PublisherProfile.objects.create(
@@ -211,7 +217,19 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         if '@' in username:
             user = User.objects.filter(email__iexact=username).first()
             if user:
+                logger.warning(
+                    'Login attempt via email for %s: mapped to username=%s, is_active=%s, is_verified=%s',
+                    username,
+                    user.username,
+                    user.is_active,
+                    user.is_verified,
+                )
                 attrs['username'] = user.username
+            else:
+                logger.warning(
+                    'Login attempt via email for %s: no matching user found',
+                    username,
+                )
         data = super().validate(attrs)
         data['user'] = UserSerializer(self.user).data
         return data

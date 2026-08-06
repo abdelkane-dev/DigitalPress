@@ -29,9 +29,12 @@ class PaymentSession {
   factory PaymentSession.fromJson(Map<String, dynamic> json) {
     final tx = json['transaction'] as Map<String, dynamic>?;
     return PaymentSession(
-      reference: tx != null ? (tx['reference'] ?? '') : (json['reference'] ?? ''),
+      reference:
+          tx != null ? (tx['reference'] ?? '') : (json['reference'] ?? ''),
       paymentUrl: json['payment_url'] as String? ?? '',
-      status: tx != null ? (tx['status'] ?? 'pending') : (json['status'] ?? 'pending'),
+      status: tx != null
+          ? (tx['status'] ?? 'pending')
+          : (json['status'] ?? 'pending'),
     );
   }
 }
@@ -58,10 +61,13 @@ class PaymentService {
     required PaymentMethodType method,
     bool isSubscription = false,
     bool isResellRight = false,
+    bool isRecharge = false,
   }) async {
     try {
       final String typeTransaction;
-      if (isSubscription) {
+      if (isRecharge) {
+        typeTransaction = 'recharge';
+      } else if (isSubscription) {
         typeTransaction = 'subscription';
       } else if (isResellRight) {
         typeTransaction = 'resell_right';
@@ -96,7 +102,8 @@ class PaymentService {
       );
 
       final session = PaymentSession.fromJson(response.data);
-      _logger.i('Session de paiement créée avec référence : ${session.reference}');
+      _logger
+          .i('Session de paiement créée avec référence : ${session.reference}');
 
       // Si un lien de redirection de paiement est fourni, on tente de l'ouvrir
       if (session.paymentUrl.isNotEmpty) {

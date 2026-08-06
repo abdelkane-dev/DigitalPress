@@ -77,7 +77,8 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
             IconButton(
-              icon: const Icon(Icons.close_rounded, color: Colors.white, size: 30),
+              icon: const Icon(Icons.close_rounded,
+                  color: Colors.white, size: 30),
               onPressed: () => Navigator.pop(context),
             ),
             ShortVideoPlayer(videoUrl: videoUrl, title: title),
@@ -230,9 +231,11 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
             data: (pub) {
               if (pub.videoUrl.isNotEmpty) {
                 return IconButton(
-                  icon: const Icon(Icons.play_circle_fill_rounded, color: Colors.redAccent),
+                  icon: const Icon(Icons.play_circle_fill_rounded,
+                      color: Colors.redAccent),
                   tooltip: 'Regarder la présentation vidéo',
-                  onPressed: () => _showVideoDialog(context, pub.videoUrl, pub.title),
+                  onPressed: () =>
+                      _showVideoDialog(context, pub.videoUrl, pub.title),
                 );
               }
               return const SizedBox.shrink();
@@ -328,8 +331,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                 }
 
                 if (pub.pubType == 'article') {
-
-
                   return _buildArticleContentView(pub, state.isNightMode);
                 }
                 final pdfViewer = state.localFilePath != null
@@ -360,7 +361,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                           }
                         },
                       )
-                    : (state.fileUrl == null
+                    : (state.fileUrl == null || state.fileUrl!.isEmpty
                         ? const SizedBox.shrink()
                         : SfPdfViewer.network(
                             sanitizeMediaUrl(state.fileUrl!),
@@ -396,10 +397,26 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
 
                 return ColorFiltered(
                   colorFilter: const ColorFilter.matrix([
-                    -1, 0, 0, 0, 255,
-                    0, -1, 0, 0, 255,
-                    0, 0, -1, 0, 255,
-                    0, 0, 0, 1, 0,
+                    -1,
+                    0,
+                    0,
+                    0,
+                    255,
+                    0,
+                    -1,
+                    0,
+                    0,
+                    255,
+                    0,
+                    0,
+                    -1,
+                    0,
+                    255,
+                    0,
+                    0,
+                    0,
+                    1,
+                    0,
                   ]),
                   child: pdfViewer,
                 );
@@ -414,7 +431,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                 ),
               ),
             ),
-
 
           // Filigrane d'identité réel (dissuasif pour les photos de l'écran) :
           // affiche l'identité du lecteur effectivement connecté, et non une
@@ -678,14 +694,17 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
 
       void flushTextBuffer() {
         if (textBuffer.trim().isNotEmpty) {
-          var cleanedText = textBuffer.trim()
+          var cleanedText = textBuffer
+              .trim()
               .replaceAll(RegExp(r'\*\*'), '')
               .replaceAll(RegExp(r'__'), '');
 
           // Traiter les liens ordinaires s'il y en a dans le texte
-          final linkMatches = RegExp(r'\[(.*?)\]\((.*?)\)').allMatches(cleanedText);
+          final linkMatches =
+              RegExp(r'\[(.*?)\]\((.*?)\)').allMatches(cleanedText);
           if (linkMatches.isNotEmpty) {
-            cleanedText = cleanedText.replaceAll(RegExp(r'\[(.*?)\]\((.*?)\)'), r'$1');
+            cleanedText =
+                cleanedText.replaceAll(RegExp(r'\[(.*?)\]\((.*?)\)'), r'$1');
           }
 
           widgets.add(Padding(
@@ -711,9 +730,12 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
         final imageMatch = RegExp(r'^!\[(.*?)\]\((.*?)\)$').firstMatch(line);
         final simpleLinkMatch = RegExp(r'\[(.*?)\]\((.*?)\)').firstMatch(line);
 
-        if (imageMatch != null || (line.startsWith('![') && line.endsWith(')'))) {
+        if (imageMatch != null ||
+            (line.startsWith('![') && line.endsWith(')'))) {
           flushTextBuffer();
-          final imageUrl = sanitizeMediaUrl(imageMatch?.group(2) ?? RegExp(r'\((.*?)\)').firstMatch(line)?.group(1) ?? '');
+          final imageUrl = sanitizeMediaUrl(imageMatch?.group(2) ??
+              RegExp(r'\((.*?)\)').firstMatch(line)?.group(1) ??
+              '');
           widgets.add(Padding(
             padding: const EdgeInsets.symmetric(vertical: 12),
             child: ClipRRect(
@@ -746,8 +768,9 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
 
         // 2. Video Match : 🎬 [title](url) ou lien finissant par une extension vidéo
         final isVideoPrefix = line.contains('🎬') || line.contains('🎥');
-        final isVideoExtension = RegExp(r'\.(mp4|avi|mov|mkv|webm)(\?|$)').hasMatch(line);
-        
+        final isVideoExtension =
+            RegExp(r'\.(mp4|avi|mov|mkv|webm)(\?|$)').hasMatch(line);
+
         if (simpleLinkMatch != null && (isVideoPrefix || isVideoExtension)) {
           flushTextBuffer();
           final videoTitle = simpleLinkMatch.group(1) ?? 'Vidéo';
@@ -784,7 +807,8 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
         }
 
         // 3. PDF Match : 📄 [title](url) or 📕 [title](url) or lien finissant par .pdf
-        final isPdfPrefix = line.contains('📄') || line.contains('📕') || line.contains('PDF');
+        final isPdfPrefix =
+            line.contains('📄') || line.contains('📕') || line.contains('PDF');
         final isPdfExtension = RegExp(r'\.(pdf)(\?|$)').hasMatch(line);
 
         if (simpleLinkMatch != null && (isPdfPrefix || isPdfExtension)) {
@@ -811,7 +835,8 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                       pageLayoutMode: PdfPageLayoutMode.single,
                       enableDoubleTapZooming: true,
                       onDocumentLoadFailed: (details) {
-                        debugPrint('Failed to load inline PDF: ${details.description}');
+                        debugPrint(
+                            'Failed to load inline PDF: ${details.description}');
                       },
                     ),
                     Positioned(
@@ -828,7 +853,9 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                               MaterialPageRoute(
                                 builder: (context) => FullScreenPdfViewer(
                                   pdfUrl: pdfUrl,
-                                  title: publication.title.isNotEmpty ? publication.title : pdfTitle,
+                                  title: publication.title.isNotEmpty
+                                      ? publication.title
+                                      : pdfTitle,
                                 ),
                               ),
                             );
@@ -903,4 +930,3 @@ class FullScreenPdfViewer extends StatelessWidget {
     );
   }
 }
-

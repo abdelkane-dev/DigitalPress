@@ -73,31 +73,148 @@ class _CountryInfo {
 }
 
 const List<_CountryInfo> _kCountries = [
-  _CountryInfo(name: 'Mali',              flag: '🇲🇱', dialCode: '+223', minDigits: 8,  maxDigits: 8),
-  _CountryInfo(name: 'Sénégal',           flag: '🇸🇳', dialCode: '+221', minDigits: 9,  maxDigits: 9),
-  _CountryInfo(name: 'Côte d\'Ivoire',   flag: '🇨🇮', dialCode: '+225', minDigits: 10, maxDigits: 10),
-  _CountryInfo(name: 'Burkina Faso',      flag: '🇧🇫', dialCode: '+226', minDigits: 8,  maxDigits: 8),
-  _CountryInfo(name: 'Niger',             flag: '🇳🇪', dialCode: '+227', minDigits: 8,  maxDigits: 8),
-  _CountryInfo(name: 'Guinée',            flag: '🇬🇳', dialCode: '+224', minDigits: 9,  maxDigits: 9),
-  _CountryInfo(name: 'Guinée-Bissau',     flag: '🇬🇼', dialCode: '+245', minDigits: 7,  maxDigits: 9),
-  _CountryInfo(name: 'Mauritanie',        flag: '🇲🇷', dialCode: '+222', minDigits: 8,  maxDigits: 8),
-  _CountryInfo(name: 'Togo',              flag: '🇹🇬', dialCode: '+228', minDigits: 8,  maxDigits: 8),
-  _CountryInfo(name: 'Bénin',             flag: '🇧🇯', dialCode: '+229', minDigits: 8,  maxDigits: 8),
-  _CountryInfo(name: 'Ghana',             flag: '🇬🇭', dialCode: '+233', minDigits: 9,  maxDigits: 10),
-  _CountryInfo(name: 'Nigeria',           flag: '🇳🇬', dialCode: '+234', minDigits: 10, maxDigits: 11),
-  _CountryInfo(name: 'Cameroun',          flag: '🇨🇲', dialCode: '+237', minDigits: 9,  maxDigits: 9),
-  _CountryInfo(name: 'Congo (RDC)',       flag: '🇨🇩', dialCode: '+243', minDigits: 9,  maxDigits: 9),
-  _CountryInfo(name: 'Congo (Brazza)',    flag: '🇨🇬', dialCode: '+242', minDigits: 9,  maxDigits: 9),
-  _CountryInfo(name: 'Gabon',             flag: '🇬🇦', dialCode: '+241', minDigits: 7,  maxDigits: 8),
-  _CountryInfo(name: 'Tchad',             flag: '🇹🇩', dialCode: '+235', minDigits: 8,  maxDigits: 8),
-  _CountryInfo(name: 'Madagascar',        flag: '🇲🇬', dialCode: '+261', minDigits: 9,  maxDigits: 10),
-  _CountryInfo(name: 'Maroc',             flag: '🇲🇦', dialCode: '+212', minDigits: 9,  maxDigits: 9),
-  _CountryInfo(name: 'Algérie',           flag: '🇩🇿', dialCode: '+213', minDigits: 9,  maxDigits: 9),
-  _CountryInfo(name: 'Tunisie',           flag: '🇹🇳', dialCode: '+216', minDigits: 8,  maxDigits: 8),
-  _CountryInfo(name: 'France',            flag: '🇫🇷', dialCode: '+33',  minDigits: 9,  maxDigits: 9),
-  _CountryInfo(name: 'Belgique',          flag: '🇧🇪', dialCode: '+32',  minDigits: 9,  maxDigits: 10),
-  _CountryInfo(name: 'Canada',            flag: '🇨🇦', dialCode: '+1',   minDigits: 10, maxDigits: 10),
-  _CountryInfo(name: 'États-Unis',        flag: '🇺🇸', dialCode: '+1',   minDigits: 10, maxDigits: 10),
+  _CountryInfo(
+      name: 'Mali', flag: '🇲🇱', dialCode: '+223', minDigits: 8, maxDigits: 8),
+  _CountryInfo(
+      name: 'Sénégal',
+      flag: '🇸🇳',
+      dialCode: '+221',
+      minDigits: 9,
+      maxDigits: 9),
+  _CountryInfo(
+      name: 'Côte d\'Ivoire',
+      flag: '🇨🇮',
+      dialCode: '+225',
+      minDigits: 10,
+      maxDigits: 10),
+  _CountryInfo(
+      name: 'Burkina Faso',
+      flag: '🇧🇫',
+      dialCode: '+226',
+      minDigits: 8,
+      maxDigits: 8),
+  _CountryInfo(
+      name: 'Niger',
+      flag: '🇳🇪',
+      dialCode: '+227',
+      minDigits: 8,
+      maxDigits: 8),
+  _CountryInfo(
+      name: 'Guinée',
+      flag: '🇬🇳',
+      dialCode: '+224',
+      minDigits: 9,
+      maxDigits: 9),
+  _CountryInfo(
+      name: 'Guinée-Bissau',
+      flag: '🇬🇼',
+      dialCode: '+245',
+      minDigits: 7,
+      maxDigits: 9),
+  _CountryInfo(
+      name: 'Mauritanie',
+      flag: '🇲🇷',
+      dialCode: '+222',
+      minDigits: 8,
+      maxDigits: 8),
+  _CountryInfo(
+      name: 'Togo', flag: '🇹🇬', dialCode: '+228', minDigits: 8, maxDigits: 8),
+  _CountryInfo(
+      name: 'Bénin',
+      flag: '🇧🇯',
+      dialCode: '+229',
+      minDigits: 8,
+      maxDigits: 8),
+  _CountryInfo(
+      name: 'Ghana',
+      flag: '🇬🇭',
+      dialCode: '+233',
+      minDigits: 9,
+      maxDigits: 10),
+  _CountryInfo(
+      name: 'Nigeria',
+      flag: '🇳🇬',
+      dialCode: '+234',
+      minDigits: 10,
+      maxDigits: 11),
+  _CountryInfo(
+      name: 'Cameroun',
+      flag: '🇨🇲',
+      dialCode: '+237',
+      minDigits: 9,
+      maxDigits: 9),
+  _CountryInfo(
+      name: 'Congo (RDC)',
+      flag: '🇨🇩',
+      dialCode: '+243',
+      minDigits: 9,
+      maxDigits: 9),
+  _CountryInfo(
+      name: 'Congo (Brazza)',
+      flag: '🇨🇬',
+      dialCode: '+242',
+      minDigits: 9,
+      maxDigits: 9),
+  _CountryInfo(
+      name: 'Gabon',
+      flag: '🇬🇦',
+      dialCode: '+241',
+      minDigits: 7,
+      maxDigits: 8),
+  _CountryInfo(
+      name: 'Tchad',
+      flag: '🇹🇩',
+      dialCode: '+235',
+      minDigits: 8,
+      maxDigits: 8),
+  _CountryInfo(
+      name: 'Madagascar',
+      flag: '🇲🇬',
+      dialCode: '+261',
+      minDigits: 9,
+      maxDigits: 10),
+  _CountryInfo(
+      name: 'Maroc',
+      flag: '🇲🇦',
+      dialCode: '+212',
+      minDigits: 9,
+      maxDigits: 9),
+  _CountryInfo(
+      name: 'Algérie',
+      flag: '🇩🇿',
+      dialCode: '+213',
+      minDigits: 9,
+      maxDigits: 9),
+  _CountryInfo(
+      name: 'Tunisie',
+      flag: '🇹🇳',
+      dialCode: '+216',
+      minDigits: 8,
+      maxDigits: 8),
+  _CountryInfo(
+      name: 'France',
+      flag: '🇫🇷',
+      dialCode: '+33',
+      minDigits: 9,
+      maxDigits: 9),
+  _CountryInfo(
+      name: 'Belgique',
+      flag: '🇧🇪',
+      dialCode: '+32',
+      minDigits: 9,
+      maxDigits: 10),
+  _CountryInfo(
+      name: 'Canada',
+      flag: '🇨🇦',
+      dialCode: '+1',
+      minDigits: 10,
+      maxDigits: 10),
+  _CountryInfo(
+      name: 'États-Unis',
+      flag: '🇺🇸',
+      dialCode: '+1',
+      minDigits: 10,
+      maxDigits: 10),
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -112,6 +229,7 @@ class PaymentScreen extends ConsumerStatefulWidget {
   final int? abonnementId;
   final bool isSubscription;
   final bool isResellRight;
+  final bool isRecharge;
 
   const PaymentScreen({
     super.key,
@@ -123,6 +241,7 @@ class PaymentScreen extends ConsumerStatefulWidget {
     this.abonnementId,
     this.isSubscription = false,
     this.isResellRight = false,
+    this.isRecharge = false,
   });
 
   @override
@@ -294,8 +413,7 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
           ),
           const SizedBox(height: 8),
           Container(
-            padding:
-                const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             decoration: BoxDecoration(
               color: _methodColor,
               borderRadius: BorderRadius.circular(20),
@@ -522,8 +640,7 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
                 decoration: BoxDecoration(
                   color: const Color(0xFFF8FAFC),
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                      color: Colors.grey.shade200, width: 1.5),
+                  border: Border.all(color: Colors.grey.shade200, width: 1.5),
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
@@ -560,8 +677,7 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
                 ],
                 decoration: _inputDecoration(
                   hint: 'Ex: ${'X' * country.minDigits}',
-                  prefixIcon:
-                      Icon(Icons.phone_rounded, color: operatorColor),
+                  prefixIcon: Icon(Icons.phone_rounded, color: operatorColor),
                 ),
                 validator: (v) {
                   if (v == null || v.isEmpty) {
@@ -621,8 +737,7 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
               height: MediaQuery.of(context).size.height * 0.75,
               decoration: const BoxDecoration(
                 color: Colors.white,
-                borderRadius:
-                    BorderRadius.vertical(top: Radius.circular(24)),
+                borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
               ),
               child: Column(
                 children: [
@@ -675,8 +790,8 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
                       },
                       decoration: InputDecoration(
                         hintText: 'Rechercher un pays ou indicatif...',
-                        prefixIcon: Icon(Icons.search_rounded,
-                            color: accentColor),
+                        prefixIcon:
+                            Icon(Icons.search_rounded, color: accentColor),
                         filled: true,
                         fillColor: const Color(0xFFF8FAFC),
                         border: OutlineInputBorder(
@@ -690,8 +805,7 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
                         ),
                         focusedBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(12),
-                          borderSide:
-                              BorderSide(color: accentColor, width: 2),
+                          borderSide: BorderSide(color: accentColor, width: 2),
                         ),
                       ),
                     ),
@@ -845,8 +959,8 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
           },
           decoration: _inputDecoration(
             hint: '1234 5678 9012 3456',
-            prefixIcon: const Icon(Icons.credit_card_rounded,
-                color: Color(0xFF635BFF)),
+            prefixIcon:
+                const Icon(Icons.credit_card_rounded, color: Color(0xFF635BFF)),
             suffix: _buildCardTypeBadge(),
           ),
           validator: (v) {
@@ -956,8 +1070,8 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
           textCapitalization: TextCapitalization.words,
           decoration: _inputDecoration(
             hint: 'Ex: Jean Dupont',
-            prefixIcon: const Icon(Icons.person_rounded,
-                color: Color(0xFF635BFF)),
+            prefixIcon:
+                const Icon(Icons.person_rounded, color: Color(0xFF635BFF)),
           ),
           validator: (v) {
             if (v == null || v.trim().isEmpty) {
@@ -1037,9 +1151,7 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
     return InputDecoration(
       hintText: hint,
       prefixIcon: prefixIcon,
-      prefix: prefixText != null
-          ? Text(prefixText, style: prefixStyle)
-          : null,
+      prefix: prefixText != null ? Text(prefixText, style: prefixStyle) : null,
       suffix: suffix,
       filled: true,
       fillColor: const Color(0xFFF8FAFC),
@@ -1166,13 +1278,14 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
       final phone = _isWallet ? '' : _phoneController.text.trim();
 
       final session = await ref.read(paymentServiceProvider).initiatePayment(
-            publicationId: widget.journalId,
+            publicationId: widget.isRecharge ? null : widget.journalId,
             abonnementId: widget.abonnementId,
             phone: phone,
             amount: widget.price,
             method: widget.paymentMethod,
             isSubscription: widget.isSubscription,
             isResellRight: widget.isResellRight,
+            isRecharge: widget.isRecharge,
           );
 
       if (!mounted) return;
@@ -1229,8 +1342,7 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
       context: context,
       barrierDismissible: false,
       builder: (context) => AlertDialog(
-        shape:
-            RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -1284,8 +1396,7 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        shape:
-            RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: const Text(
           'Paiement échoué',
           style: TextStyle(fontWeight: FontWeight.bold, color: Colors.red),
@@ -1324,8 +1435,7 @@ class _PaymentStatusDialog extends ConsumerStatefulWidget {
       __PaymentStatusDialogState();
 }
 
-class __PaymentStatusDialogState
-    extends ConsumerState<_PaymentStatusDialog> {
+class __PaymentStatusDialogState extends ConsumerState<_PaymentStatusDialog> {
   bool _isCancelled = false;
 
   @override
@@ -1341,10 +1451,10 @@ class __PaymentStatusDialogState
   }
 
   Future<void> _startPolling() async {
+    if (!mounted) return;
     final service = ref.read(paymentServiceProvider);
-    final completed =
-        await service.waitForPaymentCompletion(widget.reference);
-    if (_isCancelled) return;
+    final completed = await service.waitForPaymentCompletion(widget.reference);
+    if (_isCancelled || !mounted) return;
 
     if (completed) {
       widget.onComplete();
@@ -1356,8 +1466,7 @@ class __PaymentStatusDialogState
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      shape:
-          RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       content: const Column(
         mainAxisSize: MainAxisSize.min,
         children: [

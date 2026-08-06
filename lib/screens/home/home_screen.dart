@@ -12,6 +12,7 @@ import '../../model/publication.dart';
 import '../../core/services/publication_service.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../widgets/main_app_bar.dart';
+import '../../widgets/short_video_player.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -119,7 +120,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                 padding: const EdgeInsets.all(8),
                 constraints: const BoxConstraints(),
                 icon: Icon(
-                  _isGridView ? Icons.view_list_rounded : Icons.grid_view_rounded,
+                  _isGridView
+                      ? Icons.view_list_rounded
+                      : Icons.grid_view_rounded,
                   color: const Color(0xFF0A2647),
                   size: 20,
                 ),
@@ -227,8 +230,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     // CLIENT = NO BUTTON
     return const SizedBox.shrink();
   }
-
-
 
   Widget _buildSearchBar() {
     return Container(
@@ -403,7 +404,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     final subtitle = publication.subtitle;
     final category = publication.categoryName ?? 'Actualités';
     final price = publication.prix;
-    final imageUrl = publication.coverImage;
 
     return GestureDetector(
       onTap: () => showSubscribeOrBuySelection(context, ref, publication),
@@ -432,28 +432,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                     ),
                     child: Stack(
                       children: [
-                        CachedNetworkImage(
-                          imageUrl: imageUrl,
-                          height: double.infinity,
-                          width: double.infinity,
-                          fit: BoxFit.cover,
-                          placeholder: (context, url) => Container(
-                            color: Colors.grey.shade200,
-                            child: const Center(
-                              child: CircularProgressIndicator(),
-                            ),
-                          ),
-                          errorWidget: (context, url, error) {
-                            return Container(
-                              color: Colors.grey.shade200,
-                              child: Icon(
-                                Icons.image_not_supported_rounded,
-                                color: Colors.grey.shade400,
-                                size: 40,
-                              ),
-                            );
-                          },
-                        ),
+                        _buildPublicationCover(publication,
+                            height: double.infinity, width: double.infinity),
                         Container(
                           decoration: BoxDecoration(
                             gradient: LinearGradient(
@@ -531,40 +511,40 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                    Text(
-                      title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w900,
-                        color: Colors.black87,
-                        letterSpacing: -0.3,
-                      ),
+                  Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w900,
+                      color: Colors.black87,
+                      letterSpacing: -0.3,
                     ),
+                  ),
                   const SizedBox(height: 2),
-                    Text(
-                      subtitle,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: Colors.grey.shade600,
-                        fontWeight: FontWeight.w500,
-                      ),
+                  Text(
+                    subtitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: Colors.grey.shade600,
+                      fontWeight: FontWeight.w500,
                     ),
+                  ),
                   const SizedBox(height: 8),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                        Text(
-                          '${price.toStringAsFixed(0)} F',
-                          style: const TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w900,
-                            color: Color(0xFF56B4E9),
-                          ),
+                      Text(
+                        '${price.toStringAsFixed(0)} F',
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w900,
+                          color: Color(0xFF56B4E9),
                         ),
+                      ),
                       Container(
                         padding: const EdgeInsets.all(5),
                         decoration: BoxDecoration(
@@ -595,7 +575,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     final title = publication.title;
     final category = publication.categoryName ?? 'Actualités';
     final price = publication.prix;
-    final imageUrl = publication.coverImage;
     return Container(
       height: 120,
       margin: const EdgeInsets.only(bottom: 16),
@@ -617,31 +596,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           children: [
             Stack(
               children: [
-                 CachedNetworkImage(
-                  imageUrl: imageUrl,
-                  width: 100,
-                  height: 120,
-                  fit: BoxFit.cover,
-                  placeholder: (context, url) => Container(
-                    width: 100,
-                    height: 120,
-                    color: Colors.grey.shade200,
-                    child: const Center(
-                      child: CircularProgressIndicator(),
-                    ),
-                  ),
-                  errorWidget: (context, url, error) {
-                    return Container(
-                      width: 100,
-                      height: 120,
-                      color: Colors.grey.shade200,
-                      child: Icon(
-                        Icons.image_not_supported_rounded,
-                        color: Colors.grey.shade400,
-                      ),
-                    );
-                  },
-                ),
+                _buildPublicationCover(publication, width: 100, height: 120),
                 if (isNew)
                   Positioned(
                     top: 8,
@@ -721,8 +676,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                           ),
                         ),
                         ElevatedButton(
-                          onPressed: () =>
-                              showSubscribeOrBuySelection(context, ref, publication),
+                          onPressed: () => showSubscribeOrBuySelection(
+                              context, ref, publication),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: const Color(0xFF0A2647),
                             foregroundColor: Colors.white,
@@ -752,6 +707,55 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildPublicationCover(Publication publication,
+      {double? width, double? height}) {
+    if (publication.videoUrl.isNotEmpty) {
+      return SizedBox(
+        width: width,
+        height: height,
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(16),
+          child: ShortVideoPlayer(
+            videoUrl: publication.videoUrl,
+            title: publication.title,
+          ),
+        ),
+      );
+    }
+
+    final imageUrl =
+        publication.coverImage.isNotEmpty ? publication.coverImage : '';
+    return SizedBox(
+      width: width,
+      height: height,
+      child: CachedNetworkImage(
+        imageUrl: imageUrl,
+        width: width,
+        height: height,
+        fit: BoxFit.cover,
+        placeholder: (context, url) => Container(
+          width: width,
+          height: height,
+          color: Colors.grey.shade200,
+          child: const Center(
+            child: CircularProgressIndicator(),
+          ),
+        ),
+        errorWidget: (context, url, error) {
+          return Container(
+            width: width,
+            height: height,
+            color: Colors.grey.shade200,
+            child: Icon(
+              Icons.image_not_supported_rounded,
+              color: Colors.grey.shade400,
+            ),
+          );
+        },
       ),
     );
   }
@@ -874,7 +878,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
               child: Icon(
                 isSelected ? activeIcon : icon,
                 key: ValueKey<bool>(isSelected),
-                color: isSelected ? const Color(0xFF336B82) : Colors.grey.shade500,
+                color:
+                    isSelected ? const Color(0xFF336B82) : Colors.grey.shade500,
                 size: 26,
               ),
             ),

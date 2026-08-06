@@ -1,4 +1,5 @@
 from rest_framework import generics, permissions, status
+from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from django.utils import timezone
@@ -113,6 +114,11 @@ class InitierPaiementView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
+        logger.warning(
+            "InitierPaiement request user=%s data=%s",
+            request.user,
+            request.data,
+        )
         serializer = InitierPaiementSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
@@ -128,6 +134,11 @@ class InitierPaiementView(APIView):
                 publication = Publication.objects.get(pk=data['publication_id'])
                 beneficiaire = publication.publisher
             except Publication.DoesNotExist:
+                logger.warning(
+                    "InitierPaiement publication introuvable user=%s data=%s",
+                    request.user,
+                    request.data,
+                )
                 return Response({'error': 'Publication introuvable.'}, status=404)
 
         if data.get('abonnement_id'):
@@ -135,8 +146,18 @@ class InitierPaiementView(APIView):
             try:
                 abonnement = Abonnement.objects.get(pk=data['abonnement_id'], reader=request.user)
             except Abonnement.DoesNotExist:
+                logger.warning(
+                    "InitierPaiement abonnement introuvable user=%s data=%s",
+                    request.user,
+                    request.data,
+                )
                 return Response({'error': 'Abonnement introuvable.'}, status=404)
             if abonnement.status == 'active':
+                logger.warning(
+                    "InitierPaiement abonnement deja actif user=%s data=%s",
+                    request.user,
+                    request.data,
+                )
                 return Response({'error': 'Cet abonnement est déjà actif.'}, status=400)
             beneficiaire = abonnement.publisher
 
@@ -156,8 +177,19 @@ class InitierPaiementView(APIView):
             try:
                 montant = Decimal(str(data.get('montant', '')))
             except Exception:
+                logger.warning(
+                    "InitierPaiement montant invalide user=%s data=%s",
+                    request.user,
+                    request.data,
+                )
                 return Response({'error': 'Montant invalide.'}, status=400)
             if montant <= 0 or montant > Decimal('1000000'):
+                logger.warning(
+                    "InitierPaiement montant recharge invalide user=%s data=%s montant=%s",
+                    request.user,
+                    request.data,
+                    montant,
+                )
                 return Response({'error': 'Montant de recharge invalide.'}, status=400)
         elif publication is not None:
             if type_tx == 'resell_right':
@@ -168,11 +200,22 @@ class InitierPaiementView(APIView):
                 montant = publication.resell_price
             else:
                 if publication.is_free or publication.prix == 0:
+                    logger.warning(
+                        "InitierPaiement publication gratuite user=%s data=%s publication=%s",
+                        request.user,
+                        request.data,
+                        publication.id,
+                    )
                     return Response({'error': 'Cette publication est gratuite, aucun paiement requis.'}, status=400)
                 montant = publication.prix
         elif abonnement is not None:
             montant = abonnement.montant
         else:
+            logger.warning(
+                "InitierPaiement montant indetermine user=%s data=%s",
+                request.user,
+                request.data,
+            )
             return Response(
                 {'error': "Impossible de déterminer le montant : precisez publication_id ou abonnement_id."},
                 status=400,
@@ -197,6 +240,13 @@ class InitierPaiementView(APIView):
             
             user = request.user
             if mode_paiement == 'wallet' and user.solde < montant:
+                logger.warning(
+                    "InitierPaiement solde insuffisant user=%s data=%s solde=%s montant=%s",
+                    request.user,
+                    request.data,
+                    user.solde,
+                    montant,
+                )
                 return Response({'error': 'Solde insuffisant dans votre portefeuille.'}, status=400)
             
             with db_transaction.atomic():
@@ -504,8 +554,29 @@ class DemanderRetraitView(generics.CreateAPIView):
     permission_classes = [permissions.IsAuthenticated, IsAdminOrPublisher]
 
     def create(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data, context={'request': request})
-        serializer.is_valid(raise_exception=True)
+        try:
+            request_data = request.data
+            logger.debug(
+                'Demande retrait request: user=%s, path=%s, content_type=%s, data=%s',
+                request.user,
+                request.path,
+                request.META.get('CONTENT_TYPE'),
+                request_data,
+            )
+            serializer = self.get_serializer(data=request_data, context={'request': request})
+            serializer.is_valid(raise_exception=True)
+        except Exception as exc:
+            logger.warning(
+                'Bad request on retrait demand: user=%s, path=%s, content_type=%s, data=%s, error=%s',
+                request.user,
+                request.path,
+                request.META.get('CONTENT_TYPE'),
+                getattr(request, 'data', None),
+                exc,
+                exc_info=True,
+            )
+            raise
+
         demande = serializer.save()
         return Response(DemandeRetraitSerializer(demande).data, status=status.HTTP_201_CREATED)
 

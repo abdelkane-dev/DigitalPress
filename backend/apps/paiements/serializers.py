@@ -64,6 +64,9 @@ class DemandeRetraitSerializer(serializers.ModelSerializer):
 
 
 class DemandeRetraitCreateSerializer(serializers.ModelSerializer):
+    mode_paiement = serializers.CharField(required=False, allow_blank=True, default='mobile_money')
+    numero_compte = serializers.CharField(required=False, allow_blank=True, default='')
+
     class Meta:
         model = DemandeRetrait
         fields = ['montant', 'mode_paiement', 'numero_compte']
@@ -83,7 +86,16 @@ class DemandeRetraitCreateSerializer(serializers.ModelSerializer):
 
         profile = getattr(user, 'publisher_profile', None)
         if not profile:
-            raise serializers.ValidationError("Profil éditeur introuvable.")
+            # En cas de profil éditeur absent, on cherche un solde sur l'utilisateur
+            balance = getattr(user, 'solde', None)
+            if balance is None:
+                raise serializers.ValidationError("Profil éditeur introuvable.")
+            if value > balance:
+                raise serializers.ValidationError(
+                    f"Solde insuffisant. Disponible: {balance} FCFA"
+                )
+            return value
+
         if value > profile.solde:
             raise serializers.ValidationError(
                 f"Solde insuffisant. Disponible: {profile.solde} FCFA"

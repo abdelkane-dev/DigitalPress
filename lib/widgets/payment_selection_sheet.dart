@@ -181,6 +181,7 @@ class PaymentSelectionSheet extends ConsumerWidget {
               abonnementId: abonnementId,
               isSubscription: isSubscription,
               isResellRight: isResellRight,
+              isRecharge: isRecharge,
             ),
           ),
         );
