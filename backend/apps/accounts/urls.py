@@ -1,0 +1,50 @@
+from django.urls import path
+from rest_framework_simplejwt.views import TokenRefreshView
+from .views import (
+    CustomTokenObtainPairView, RegisterView, AdminCreatePublisherView, ProfileView,
+    ChangePasswordView, UserListView, UserDetailView,
+    PublisherProfileView, PublicPublisherDetailView,
+    PublishersListView, PublicPublishersListView,
+    AdminIssueWarningView, AdminPosterWarningsListView, MyWarningsView,
+    PasswordResetRequestView, PasswordResetVerifyView, PasswordResetConfirmView,
+    MyPublisherVerificationView, AdminPublisherVerificationListView,
+    AdminPublisherVerificationReviewView, DeleteMyAccountView, SocialLoginView,
+    GoogleAuthView, FacebookAuthView,
+    VerifyEmailView, ResendEmailVerificationView,
+    AdminUserDetailView, AdminUserActionView,
+)
+
+urlpatterns = [
+    path('register/', RegisterView.as_view(), name='register'),
+    # Activation du compte par email (OTP 15 min — note Dr. Sissoko)
+    path('verify-email/', VerifyEmailView.as_view(), name='verify_email'),
+    path('resend-email-verification/', ResendEmailVerificationView.as_view(), name='resend_email_verification'),
+    path('social-login/', SocialLoginView.as_view(), name='social_login'),
+    path('auth/google/', GoogleAuthView.as_view(), name='google_auth'),
+    path('auth/facebook/', FacebookAuthView.as_view(), name='facebook_auth'),
+    path('admin/create-publisher/', AdminCreatePublisherView.as_view(), name='admin_create_publisher'),
+    path('login/', CustomTokenObtainPairView.as_view(), name='token_obtain_pair'),
+    path('token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+    path('me/', ProfileView.as_view(), name='profile'),
+    path('me/delete/', DeleteMyAccountView.as_view(), name='delete_my_account'),
+    path('me/change-password/', ChangePasswordView.as_view(), name='change_password'),
+    path('me/publisher-profile/', PublisherProfileView.as_view(), name='publisher_profile'),
+    path('me/warnings/', MyWarningsView.as_view(), name='my_warnings'),
+    path('me/verification/', MyPublisherVerificationView.as_view(), name='my_verification'),
+    path('admin/verifications/', AdminPublisherVerificationListView.as_view(), name='admin_verifications'),
+    path('admin/verifications/<int:pk>/review/', AdminPublisherVerificationReviewView.as_view(), name='admin_verification_review'),
+    path('users/', UserListView.as_view(), name='user_list'),
+    path('users/<int:pk>/', UserDetailView.as_view(), name='user_detail'),
+    # Admin : détail enrichi + actions de modération d'un utilisateur
+    path('admin/users/<int:pk>/detail/', AdminUserDetailView.as_view(), name='admin_user_detail'),
+    path('admin/users/<int:pk>/action/', AdminUserActionView.as_view(), name='admin_user_action'),
+    path('publishers/', PublishersListView.as_view(), name='publishers_list'),
+    path('publishers/public/', PublicPublishersListView.as_view(), name='public_publishers_list'),
+    path('publishers/public/<int:pk>/', PublicPublisherDetailView.as_view(), name='public_publisher_profile'),
+    path('publishers/<int:pk>/warnings/', AdminPosterWarningsListView.as_view(), name='publisher_warnings_admin'),
+    path('warnings/', AdminPosterWarningsListView.as_view(), name='warnings_admin_all'),
+    path('warnings/issue/', AdminIssueWarningView.as_view(), name='issue_warning'),
+    path('password-reset/request/', PasswordResetRequestView.as_view(), name='password_reset_request'),
+    path('password-reset/verify/', PasswordResetVerifyView.as_view(), name='password_reset_verify'),
+    path('password-reset/confirm/', PasswordResetConfirmView.as_view(), name='password_reset_confirm'),
+]

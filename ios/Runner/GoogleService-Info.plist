@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>API_KEY</key>
+	<string>AIzaSyBX_mRXq5VKxtJ9yXBe2PwG4c0C6N0qjU0</string>
+	<key>GCM_SENDER_ID</key>
+	<string>959894274903</string>
+	<key>PLIST_VERSION</key>
+	<string>1</string>
+	<key>BUNDLE_ID</key>
+	<string>com.example.digitalpress</string>
+	<key>PROJECT_ID</key>
+	<string>digitalpress-ec022</string>
+	<key>STORAGE_BUCKET</key>
+	<string>digitalpress-ec022.firebasestorage.app</string>
+	<key>IS_ADS_ENABLED</key>
+	<false></false>
+	<key>IS_ANALYTICS_ENABLED</key>
+	<false></false>
+	<key>IS_APPINVITE_ENABLED</key>
+	<true></true>
+	<key>IS_GCM_ENABLED</key>
+	<true></true>
+	<key>IS_SIGNIN_ENABLED</key>
+	<true></true>
+	<key>GOOGLE_APP_ID</key>
+	<string>1:959894274903:ios:b05c8e6e684b2b43143412</string>
+</dict>
+</plist>

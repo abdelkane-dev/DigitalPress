@@ -1,6 +1,0 @@
-Django>=4.2
-djangorestframework>=3.14
-djangorestframework-simplejwt>=5.2
-psycopg2-binary>=2.9
-drf-yasg>=1.21
-python-dotenv>=1.0

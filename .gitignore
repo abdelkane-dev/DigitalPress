@@ -1,39 +1,94 @@
-# Python
-__pycache__/
-*.py[cod]
+# Miscellaneous
+*.class
+*.log
+*.pyc
 *.pyo
+*.py[cod]
+*.swp
+.DS_Store
+.atom/
+.build/
+.buildlog/
+.history
+.svn/
+.swiftpm/
+migrate_working_dir/
+Thumbs.db
+
+# IntelliJ/VS Code related
+*.iml
+*.ipr
+*.iws
+.idea/
+# .vscode/ n'est plus ignoré en bloc : extensions.json et tasks.json sont
+# partagés avec l'équipe (Baken, Franco) pour un environnement VS Code
+# identique pour tout le monde ; seuls les réglages/état propres à chaque
+# développeur restent ignorés.
+.vscode/*
+!.vscode/extensions.json
+!.vscode/tasks.json
+*.sublime-workspace
+*.sublime-project
+
+# Python & Django
+__pycache__/
 .Python
 env/
 venv/
 .venv/
-back/.venv/
+backend/venv/
+backend/.venv/
+backend/media/
+backend/staticfiles/
+backend/logs/
 
-# Django
-*.log
-local_settings.py
-db.sqlite3
-media/
-staticfiles/
-\n+# Env
+# Env & Configuration
 .env
 .env.*
+backend/.env
+backend/.env.*
+
+# Outils locaux / sauvegardes (jamais sur GitHub)
+.freebuff/
+*.tar.gz
 
 # Docker
 docker-compose.override.yml
 
-# IDEs
-.vscode/
-.idea/
-*.sublime-workspace
-*.sublime-project
-
-# OS
-.DS_Store
-Thumbs.db
-
-# Flutter
+# Flutter/Dart/Pub related
+**/doc/api/
+**/ios/Flutter/.last_build_id
+.dart_tool/
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
 /build/
-/.dart_tool/
-/.packages
-/.flutter-plugins
-/.flutter-plugins-dependencies
+/coverage/
+
+# Symbolication / Obfuscation related
+app.*.symbols
+app.*.map.json
+
+# Android Studio will place build artifacts here
+/android/app/debug
+/android/app/profile
+/android/app/release
+
+# ─── AJOUT : caches de compilation par plateforme (absents jusqu'ici,
+# risque réel de les committer par erreur — chacun fait plusieurs dizaines
+# de Mo et se régénère automatiquement au premier build) ───────────────
+android/build/
+android/app/build/
+android/.gradle/
+android/.kotlin/
+ios/Pods/
+ios/.symlinks/
+macos/Pods/
+macos/.symlinks/
+windows/flutter/ephemeral/
+linux/flutter/ephemeral/
+
+# Fichiers parasites générés accidentellement (crashs JVM Gradle sous Windows,
+# artefacts de commandes shell mal interprétées)
+hs_err_pid*.log
+replay_pid*.log

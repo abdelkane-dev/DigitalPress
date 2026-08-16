@@ -1,0 +1,25 @@
+{
+    "flutter": {
+        "platforms": {
+            "android": {
+                "default": {
+                    "projectId": "digitalpress-ec022",
+                    "appId": "1:959894274903:android:33d33831976b1a6b143412",
+                    "fileOutput": "android/app/google-services.json"
+                }
+            },
+            "dart": {
+                "lib/firebase_options.dart": {
+                    "projectId": "digitalpress-ec022",
+                    "configurations": {
+                        "android": "1:959894274903:android:33d33831976b1a6b143412",
+                        "ios": "1:959894274903:ios:b05c8e6e684b2b43143412",
+                        "macos": "1:959894274903:ios:b05c8e6e684b2b43143412",
+                        "web": "1:959894274903:web:10d777831007126d143412",
+                        "windows": "1:959894274903:web:a06d520ce828dfb6143412"
+                    }
+                }
+            }
+        }
+    }
+}

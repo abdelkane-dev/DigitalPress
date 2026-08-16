@@ -1,0 +1,43 @@
+# ============================================================
+# Digital Press Backend — .gitignore
+# ============================================================
+
+# Environnement virtuel Python
+venv/
+.venv/
+env/
+
+# Cache Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+
+# Django
+*.log
+local_settings.py
+staticfiles/
+media/
+
+# Variables d'environnement (secrets)
+.env
+# Garder .env.example et .env.docker en Git
+
+# Tests / Coverage
+.pytest_cache/
+.coverage
+htmlcov/
+*.xml
+
+# IDEs
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# OS
+.DS_Store
+Thumbs.db

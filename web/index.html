@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <!--
+    If you are serving your web app in a path other than the root, change the
+    href value below to reflect the base path you are serving from.
+
+    The path provided below has to start and end with a slash "/" in order for
+    it to work correctly.
+
+    For more details:
+    * https://developer.mozilla.org/en-US/docs/Web/HTML/Element/base
+
+    This is a placeholder for base href that will be replaced by the value of
+    the `--base-href` argument provided to `flutter build`.
+  -->
+  <base href="$FLUTTER_BASE_HREF">
+
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta content="IE=Edge" http-equiv="X-UA-Compatible">
+  <meta name="description" content="DigitalPress - La plateforme de presse numerique.">
+
+  <meta name="theme-color" content="#0D417B">
+
+  <!-- iOS meta tags & icons -->
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="DigitalPress">
+  <link rel="apple-touch-icon" href="icons/Icon-192.png">
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/png" sizes="32x32" href="favicon.png"/>
+  <link rel="shortcut icon" href="favicon.ico"/>
+
+  <title>DigitalPress</title>
+  <link rel="manifest" href="manifest.json">
+
+  <style>
+    /* Anti-partage web : pas de sélection de texte hors champs de saisie */
+    body { user-select: none; -webkit-user-select: none; }
+  </style>
+</head>
+<body>
+  <script>
+    // ─── ANTI-PARTAGE WEB ────────────────────────────────────────────────
+    // Le contenu (articles, images, vidéos) ne doit pas pouvoir être
+    // enregistré ou partagé depuis le site : clic droit, glisser-déposer des
+    // images et sélection de texte sont bloqués. (Les captures d'écran ne
+    // peuvent pas être techniquement bloquées sur le web — le filigrane
+    // d'identité reste la dissuasion sur ce canal.)
+    document.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+    document.addEventListener('dragstart', function (e) { e.preventDefault(); });
+    document.addEventListener('selectstart', function (e) {
+      var t = e.target;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+      e.preventDefault();
+    });
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'PrintScreen' ||
+          (e.ctrlKey && (e.key === 'p' || e.key === 's' || e.key === 'u'))) {
+        e.preventDefault();
+      }
+    });
+  </script>
+  <script src="flutter_bootstrap.js" async></script>
+</body>
+</html>

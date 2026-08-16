@@ -1,0 +1,44 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Backend: installer dépendances",
+      "type": "shell",
+      "command": "cd backend && python3 -m venv venv && source venv/bin/activate && pip install -r requirements.txt",
+      "problemMatcher": []
+    },
+    {
+      "label": "Backend: migrer la base de données",
+      "type": "shell",
+      "command": "cd backend && source venv/bin/activate && python manage.py migrate",
+      "problemMatcher": []
+    },
+    {
+      "label": "Backend: lancer le serveur (dev)",
+      "type": "shell",
+      "command": "cd backend && source venv/bin/activate && python manage.py runserver",
+      "isBackground": true,
+      "problemMatcher": []
+    },
+    {
+      "label": "Backend: lancer avec WebSockets (Daphne)",
+      "type": "shell",
+      "command": "cd backend && source venv/bin/activate && daphne -b 0.0.0.0 -p 8000 config.asgi:application",
+      "isBackground": true,
+      "problemMatcher": []
+    },
+    {
+      "label": "Flutter: installer les dépendances",
+      "type": "shell",
+      "command": "flutter pub get",
+      "problemMatcher": []
+    },
+    {
+      "label": "Flutter: lancer (appareil connecté par défaut)",
+      "type": "shell",
+      "command": "flutter run",
+      "isBackground": true,
+      "problemMatcher": []
+    }
+  ]
+}
