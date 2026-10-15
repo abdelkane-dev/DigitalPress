@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import '../../core/services/app_notification_service.dart';
+import '../../core/services/auth_service.dart';
+import '../../model/user.dart';
 
 class NotificationsScreen extends ConsumerStatefulWidget {
   const NotificationsScreen({super.key});
@@ -41,7 +44,7 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen>
 
           return CustomScrollView(
             slivers: [
-              _buildAppBar(unreadCount),
+              _buildAppBar(unreadCount, notifications.isNotEmpty),
               SliverToBoxAdapter(child: _buildTabs()),
               if (filtered.isEmpty)
                 SliverFillRemaining(
@@ -101,7 +104,7 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen>
     );
   }
 
-  Widget _buildAppBar(int unreadCount) {
+  Widget _buildAppBar(int unreadCount, bool hasNotifications) {
     return SliverAppBar(
       expandedHeight: 140.0,
       floating: false,
@@ -194,7 +197,49 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen>
           },
           tooltip: 'Tout marquer comme lu',
         ),
-        const SizedBox(width: 8),
+        // ─── SUPPRESSION : tout effacer (remise à zéro des notifications) ──
+        if (hasNotifications)
+          IconButton(
+            icon: const Icon(Icons.delete_sweep_rounded, color: Colors.white),
+            onPressed: () async {
+              final confirmed = await showDialog<bool>(
+                context: context,
+                builder: (ctx) => AlertDialog(
+                  title: const Text('Tout supprimer ?'),
+                  content: const Text(
+                      'Toutes vos notifications seront définitivement supprimées.'),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(ctx, false),
+                      child: const Text('Annuler'),
+                    ),
+                    ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.red),
+                      onPressed: () => Navigator.pop(ctx, true),
+                      child: const Text('Tout supprimer'),
+                    ),
+                  ],
+                ),
+              );
+              if (confirmed != true) return;
+              await ref
+                  .read(appNotificationsProvider.notifier)
+                  .clearAllNotifications();
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: const Text('Toutes les notifications ont été supprimées'),
+                    behavior: SnackBarBehavior.floating,
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
+                  ),
+                );
+              }
+            },
+            tooltip: 'Tout supprimer',
+          ),
+        const SizedBox(width: 4),
       ],
     );
   }
@@ -248,7 +293,10 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen>
         child: const Icon(Icons.delete_rounded, color: Colors.white, size: 28),
       ),
       onDismissed: (_) {
-        ref.read(appNotificationsProvider.notifier).removeLocally(notification.id);
+        // Suppression réelle côté serveur (pas seulement locale).
+        ref
+            .read(appNotificationsProvider.notifier)
+            .deleteNotification(notification.id);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: const Text('Notification supprimée'),
@@ -268,7 +316,10 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen>
           ),
         ),
         child: GestureDetector(
-          onTap: () => ref.read(appNotificationsProvider.notifier).markAsRead(notification.id),
+          onTap: () {
+            ref.read(appNotificationsProvider.notifier).markAsRead(notification.id);
+            _navigateToNotification(notification, context);
+          },
           child: Container(
             margin: const EdgeInsets.only(bottom: 12),
             decoration: BoxDecoration(
@@ -289,46 +340,50 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen>
               ],
             ),
             child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
+              child: Stack(
                 children: [
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: notification.color.withAlpha(25),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Icon(notification.icon, color: notification.color, size: 24),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Column(
+                  Padding(
+                    padding: const EdgeInsets.only(right: 22),
+                    child: Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                notification.title,
-                                style: const TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w900,
-                                  color: Color(0xFF0A2647),
-                                ),
-                              ),
-                            ),
-                            if (!notification.isRead)
-                              Container(
-                                width: 8,
-                                height: 8,
-                                decoration: const BoxDecoration(
-                                  color: Color(0xFF2C74B3),
-                                  shape: BoxShape.circle,
-                                ),
-                              ),
-                          ],
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: notification.color.withAlpha(25),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Icon(notification.icon, color: notification.color, size: 24),
                         ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      notification.title,
+                                      style: const TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w900,
+                                        color: Color(0xFF0A2647),
+                                      ),
+                                    ),
+                                  ),
+                                  if (!notification.isRead)
+                                    Container(
+                                      width: 8,
+                                      height: 8,
+                                      decoration: const BoxDecoration(
+                                        color: Color(0xFF2C74B3),
+                                        shape: BoxShape.circle,
+                                      ),
+                                    ),
+                                ],
+                              ),
                         const SizedBox(height: 6),
                         Text(
                           notification.message,
@@ -338,40 +393,77 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen>
                             height: 1.4,
                           ),
                         ),
-                        const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 8, vertical: 4),
-                              decoration: BoxDecoration(
-                                color: notification.color.withAlpha(15),
-                                borderRadius: BorderRadius.circular(6),
+                              const SizedBox(height: 8),
+                              Row(
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 8, vertical: 4),
+                                    decoration: BoxDecoration(
+                                      color: notification.color.withAlpha(15),
+                                      borderRadius: BorderRadius.circular(6),
+                                    ),
+                                    child: Text(
+                                      notification.typeNotifDisplay,
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w700,
+                                        color: notification.color,
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Icon(Icons.access_time_rounded,
+                                      size: 14, color: Colors.grey.shade400),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    _formatTimestamp(notification.createdAt),
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.grey.shade500,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
                               ),
-                              child: Text(
-                                notification.typeNotifDisplay,
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w700,
-                                  color: notification.color,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Icon(Icons.access_time_rounded,
-                                size: 14, color: Colors.grey.shade400),
-                            const SizedBox(width: 4),
-                            Text(
-                              _formatTimestamp(notification.createdAt),
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Colors.grey.shade500,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
                       ],
+                    ),
+                  ),
+                  // ─── CROIX ROUGE : suppression INDIVIDUELLE ─────────────
+                  // Petite croix rouge en haut à droite de chaque
+                  // notification (demande explicite) — supprime cette
+                  // notification seule, côté serveur, sans confirmation.
+                  Positioned(
+                    top: -8,
+                    right: -8,
+                    child: GestureDetector(
+                      onTap: () {
+                        ref
+                            .read(appNotificationsProvider.notifier)
+                            .deleteNotification(notification.id);
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: const Text('Notification supprimée'),
+                            behavior: SnackBarBehavior.floating,
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12)),
+                          ),
+                        );
+                      },
+                      child: Container(
+                        width: 22,
+                        height: 22,
+                        decoration: BoxDecoration(
+                          color: Colors.red.shade500,
+                          shape: BoxShape.circle,
+                          border: Border.all(color: Colors.white, width: 1.5),
+                        ),
+                        child: const Icon(Icons.close_rounded,
+                            color: Colors.white, size: 14),
+                      ),
                     ),
                   ),
                 ],
@@ -381,6 +473,88 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen>
         ),
       ),
     );
+  }
+
+  void _navigateToNotification(AppNotification notification, BuildContext context) {
+    final data = notification.data;
+    final currentUser = ref.read(authStateProvider).valueOrNull;
+    final role = currentUser?.role ?? 'reader';
+
+    // Navigation basée sur le type de notification
+    switch (notification.typeNotif) {
+      case 'new_comment':
+      case 'new_reply':
+        final pubId = data['article_id'] ?? data['publication_id'] ?? data['id'];
+        if (pubId != null) {
+          context.push('/article/$pubId?scrollToComments=true');
+        }
+        break;
+
+      case 'new_publication':
+      case 'publication_published':
+        final pubId = data['article_id'] ?? data['publication_id'] ?? data['id'];
+        if (pubId != null) {
+          context.push('/reader/$pubId', extra: true);
+        }
+        break;
+
+      case 'purchase_complete':
+      case 'payment_success':
+        final pubId = data['article_id'] ?? data['publication_id'] ?? data['id'];
+        if (pubId != null) {
+          context.push('/reader/$pubId', extra: true);
+        } else {
+          context.push('/profile/purchases');
+        }
+        break;
+
+      case 'verification_reviewed':
+        if (role == 'publisher') {
+          context.push('/poster/profile');
+        }
+        break;
+
+      case 'verification_submitted':
+        if (role == 'admin') {
+          context.push('/admin/verifications');
+        }
+        break;
+
+      case 'featured_activated':
+        final pubId = data['publication_id'] ?? data['id'];
+        if (pubId != null && role == 'publisher') {
+          context.push('/poster/statistics');
+        }
+        break;
+
+      case 'account_moderation':
+        if (role == 'admin') {
+          context.push('/admin/comptabilite');
+        }
+        break;
+
+      case 'new_subscription':
+        if (role == 'publisher') {
+          context.push('/poster/profile');
+        } else {
+          context.push('/profile/purchases');
+        }
+        break;
+
+      case 'withdrawal_processed':
+      case 'withdrawal_completed':
+        if (role == 'publisher' || role == 'admin') {
+          context.push('/poster/wallet');
+        }
+        break;
+
+      default:
+        final pubId = data['article_id'] ?? data['publication_id'] ?? data['id'];
+        if (pubId != null) {
+          context.push('/reader/$pubId', extra: true);
+        }
+        break;
+    }
   }
 
   String _formatTimestamp(DateTime timestamp) {

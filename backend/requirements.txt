@@ -1,7 +1,7 @@
 # ============================================================
-# Digital Press Backend — requirements.txt
-# Python 3.10+ | Django 4.2 LTS
-# Fichier unique — couvre dev local, Docker et production
+# DigitalPress Backend — requirements.txt
+# Python 3.12 | Django 4.2 LTS
+# Fichier unique — déploiement direct VPS (Systemd), sans Docker
 # ============================================================
 
 # ─── Core Django ─────────────────────────────────────────────
@@ -11,10 +11,16 @@ django-cors-headers==4.3.1
 django-filter==24.1
 
 # ─── Auth & JWT ──────────────────────────────────────────────
+google-auth==2.35.0
+
+# ─── WebSockets / temps réel ────────────────────────────────
+channels==4.1.0
+channels-redis==4.2.1
+daphne==4.1.2
 djangorestframework-simplejwt==5.3.1
 
 # ─── Database ────────────────────────────────────────────────
-# psycopg2-binary: préféré en dev/Docker (pas de compilation C)
+# psycopg2-binary: plus simple à installer (pas de compilation C nécessaire)
 # psycopg2:        préféré en production (build from source, plus stable)
 psycopg2-binary>=2.9.10
 
@@ -27,7 +33,7 @@ django-celery-results==2.5.1
 
 # ─── API Documentation ───────────────────────────────────────
 drf-yasg==1.21.8
-setuptools>=75.0.0
+setuptools>=65.0.0,<70.0.0
 
 # ─── HTTP / Paiements ────────────────────────────────────────
 requests==2.32.3

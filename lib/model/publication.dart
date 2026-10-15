@@ -13,6 +13,10 @@ class Publication {
   // Publisher info
   final int publisherId;
   final String publisherName;
+  /// Badge de compte de l'éditeur (ex: "Membre Premium"), null si aucun.
+  final String? publisherBadge;
+  /// URL de l'avatar de l'éditeur (affiché dans les cartes et le lecteur).
+  final String? publisherAvatarUrl;
 
   // Category
   final int? categoryId;
@@ -27,6 +31,9 @@ class Publication {
   final double prix;
   final double? resellPrice;
   final bool isFree;
+  /// Contenu réservé exclusivement aux lecteurs abonnés à cet éditeur —
+  /// non achetable à l'unité, voir Publication.is_accessible_by côté backend.
+  final bool isSubscriberExclusive;
 
   // Meta
   final String status;
@@ -37,6 +44,8 @@ class Publication {
   final double? averageRating;
   final int reviewsCount;
   final bool isSubscribed;  // Calculé par le backend selon l'abonnement actif
+  /// Mis en avant par l'équipe (section « À la une » de l'accueil).
+  final bool isFeatured;
   final int? originalPublicationId;
   final String? originalPublisherName;
   final DateTime? publishedAt;
@@ -51,6 +60,8 @@ class Publication {
     this.content = '',
     required this.publisherId,
     this.publisherName = '',
+    this.publisherBadge,
+    this.publisherAvatarUrl,
     this.categoryId,
     this.categoryName,
     this.coverImage = '',
@@ -59,6 +70,7 @@ class Publication {
     this.prix = 0.0,
     this.resellPrice,
     this.isFree = false,
+    this.isSubscriberExclusive = false,
     this.status = 'published',
     this.pubType = 'article',
     this.viewsCount = 0,
@@ -67,6 +79,7 @@ class Publication {
     this.averageRating,
     this.reviewsCount = 0,
     this.isSubscribed = false,
+    this.isFeatured = false,
     this.originalPublicationId,
     this.originalPublisherName,
     this.publishedAt,
@@ -95,6 +108,12 @@ class Publication {
           : (json['publisher'] ?? 0),
       publisherName: json['publisher_name'] ??
           (json['publisher'] is Map ? json['publisher']['name'] ?? '' : ''),
+      publisherBadge: json['publisher_badge'] as String?,
+      publisherAvatarUrl: json['publisher_avatar'] != null
+          ? ApiConfig.sanitizeUrl(json['publisher_avatar'].toString())
+          : (json['publisher'] is Map && json['publisher']['avatar'] != null
+              ? ApiConfig.sanitizeUrl(json['publisher']['avatar'].toString())
+              : null),
       categoryId: json['category'] is Map
           ? json['category']['id']
           : json['category'],
@@ -110,6 +129,7 @@ class Publication {
           ? double.tryParse(json['resell_price'].toString()) 
           : null,
       isFree: json['is_free'] ?? false,
+      isSubscriberExclusive: json['is_subscriber_exclusive'] ?? false,
       status: json['status'] ?? 'published',
       pubType: json['pub_type'] ?? json['type'] ?? 'article',
       viewsCount: json['views_count'] ?? 0,
@@ -120,6 +140,7 @@ class Publication {
           : null,
       reviewsCount: json['reviews_count'] ?? 0,
       isSubscribed: json['is_subscribed'] ?? false,
+      isFeatured: json['is_featured'] ?? false,
       originalPublicationId: json['original_publication'],
       originalPublisherName: json['original_publisher_name'],
       publishedAt: _parseDate(json['published_date'] ?? json['published_at']),
@@ -146,17 +167,35 @@ class Publication {
         'prix': prix,
         'resell_price': resellPrice,
         'is_free': isFree,
+        'is_subscriber_exclusive': isSubscriberExclusive,
         'status': status,
         'pub_type': pubType,
+        'is_featured': isFeatured,
         'tags': tags.join(','),
       };
 
   // Convenience getters
   bool get isPublished => status == 'published';
+
+  /// Contenu VERROUILLÉ pour l'utilisateur courant : payant, non gratuit,
+  /// non déjà débloqué (achat/abonnement actif), et non possédé/admin.
+  /// Utilisé partout pour interdire tout accès (lecture ET conversation)
+  /// avant paiement — un contenu payant ne doit rien montrer d'autre que
+  /// les options d'abonnement/achat tant qu'il n'est pas débloqué.
+  bool isLockedFor({required String? currentUserId, required bool isAdmin}) {
+    if (isFree || prix <= 0 || isSubscribed) return false;
+    if (isAdmin) return false;
+    if (currentUserId != null && currentUserId == publisherId.toString()) {
+      return false; // l'éditeur accède toujours à son propre contenu
+    }
+    return true;
+  }
   bool get isDraft => status == 'draft';
   bool get isPending => status == 'pending';
 
-  String get prixDisplay => isFree ? 'Gratuit' : '${prix.toStringAsFixed(0)} FCFA';
+  // ─── Aucune mention « Gratuit » dans l'app (demande explicite) : un
+  // contenu sans prix affiche un libellé neutre, pas « Gratuit ».
+  String get prixDisplay => isFree ? 'À lire' : '${prix.toStringAsFixed(0)} FCFA';
 
   String get typeLabel {
     switch (pubType) {
@@ -177,6 +216,8 @@ class Publication {
     String? content,
     int? publisherId,
     String? publisherName,
+    String? publisherBadge,
+    String? publisherAvatarUrl,
     int? categoryId,
     String? categoryName,
     String? coverImage,
@@ -185,6 +226,7 @@ class Publication {
     double? prix,
     double? resellPrice,
     bool? isFree,
+    bool? isSubscriberExclusive,
     String? status,
     String? pubType,
     int? viewsCount,
@@ -192,6 +234,7 @@ class Publication {
     List<String>? tags,
     double? averageRating,
     int? reviewsCount,
+    bool? isFeatured,
     int? originalPublicationId,
     String? originalPublisherName,
     DateTime? publishedAt,
@@ -206,6 +249,8 @@ class Publication {
       content: content ?? this.content,
       publisherId: publisherId ?? this.publisherId,
       publisherName: publisherName ?? this.publisherName,
+      publisherBadge: publisherBadge ?? this.publisherBadge,
+      publisherAvatarUrl: publisherAvatarUrl ?? this.publisherAvatarUrl,
       categoryId: categoryId ?? this.categoryId,
       categoryName: categoryName ?? this.categoryName,
       coverImage: coverImage ?? this.coverImage,
@@ -214,6 +259,7 @@ class Publication {
       prix: prix ?? this.prix,
       resellPrice: resellPrice ?? this.resellPrice,
       isFree: isFree ?? this.isFree,
+      isSubscriberExclusive: isSubscriberExclusive ?? this.isSubscriberExclusive,
       status: status ?? this.status,
       pubType: pubType ?? this.pubType,
       viewsCount: viewsCount ?? this.viewsCount,
@@ -221,6 +267,7 @@ class Publication {
       tags: tags ?? this.tags,
       averageRating: averageRating ?? this.averageRating,
       reviewsCount: reviewsCount ?? this.reviewsCount,
+      isFeatured: isFeatured ?? this.isFeatured,
       originalPublicationId: originalPublicationId ?? this.originalPublicationId,
       originalPublisherName: originalPublisherName ?? this.originalPublisherName,
       publishedAt: publishedAt ?? this.publishedAt,

@@ -1,9 +1,5 @@
-import os
+# Celery est toujours actif : DigitalPress n'utilise que PostgreSQL
+# (le broker Redis est requis, voir .env.example).
+from .celery import app as celery_app
 
-# Celery uniquement en mode PostgreSQL / production
-if os.getenv('USE_SQLITE', 'True') != 'True':
-    from .celery import app as celery_app
-    __all__ = ('celery_app',)
-else:
-    # Mode SQLite : Celery désactivé
-    __all__ = ()
+__all__ = ('celery_app',)

@@ -5,9 +5,13 @@ from rest_framework.test import APIRequestFactory, force_authenticate
 from rest_framework.request import Request
 
 from apps.paiements.models import Transaction
-from .models import Category, Publication
+from .models import Category, Publication, PublicationView
 from .serializers import PublicationCreateSerializer, PublicationSerializer
-from .views import PublicationListView, PublicationFileAccessView
+from .views import (
+    PublicationListView, PublicationFileAccessView,
+    FeaturedPublicationsView, FeaturePublicationView,
+    VerifyFeaturePaymentView,
+)
 
 
 class PublicationCreateSerializerTests(TestCase):
@@ -190,3 +194,126 @@ class PublicationCreateSerializerTests(TestCase):
         response = PublicationFileAccessView.as_view()(request, pk=publication_b.id)
 
         self.assertEqual(response.status_code, 403)
+
+
+class FeaturedPublicationsTests(TestCase):
+    """Tests du système « À la une » : vitrine tendances + mise en avant
+    payante par l'éditeur (façon publicité Facebook)."""
+
+    def setUp(self):
+        User = get_user_model()
+        self.publisher = User.objects.create_user(
+            username='publisher-featured',
+            password='secret123',
+            role='publisher',
+        )
+        self.other_publisher = User.objects.create_user(
+            username='publisher-featured-2',
+            password='secret123',
+            role='publisher',
+        )
+        category = Category.objects.create(name='Tech', slug='tech')
+        self.pub_a = Publication.objects.create(
+            title='Article tendance',
+            description='Description',
+            content='Contenu',
+            publisher=self.publisher,
+            category=category,
+            status='published',
+        )
+        self.pub_b = Publication.objects.create(
+            title='Article brouillon',
+            description='Description',
+            content='Contenu',
+            publisher=self.publisher,
+            category=category,
+            status='draft',
+        )
+
+    def test_trending_uses_recent_views_only(self):
+        # 4 vues récentes sur pub_a → tendance. 4 vues anciennes sur pub_b
+        # → ne doit PAS apparaître (statut brouillon + vues anciennes).
+        for i in range(4):
+            PublicationView.objects.create(
+                publication=self.pub_a, viewer_key=f'ip_1{i}'
+            )
+        old = timezone.now() - timezone.timedelta(days=10)
+        for i in range(4):
+            PublicationView.objects.create(
+                publication=self.pub_b, viewer_key=f'ip_2{i}'
+            )
+        PublicationView.objects.filter(
+            publication=self.pub_b
+        ).update(viewed_at=old)
+
+        request = APIRequestFactory().get('/api/publications/featured/')
+        response = FeaturedPublicationsView.as_view()(request)
+
+        self.assertEqual(response.status_code, 200)
+        trending_ids = [p['id'] for p in response.data['trending']]
+        self.assertIn(self.pub_a.id, trending_ids)
+        self.assertNotIn(self.pub_b.id, trending_ids)
+
+    def test_featured_wallet_payment_activates_promotion(self):
+        from apps.accounts.models import PublisherProfile
+        profile, _ = PublisherProfile.objects.get_or_create(
+            user=self.publisher,
+            defaults={'company_name': 'Featured Press'},
+        )
+        profile.solde = 10000
+        profile.save(update_fields=['solde'])
+
+        request = APIRequestFactory().post(
+            f'/api/publications/{self.pub_a.id}/feature/',
+            data={'days': 7, 'mode_paiement': 'wallet'},
+            format='json',
+        )
+        force_authenticate(request, user=self.publisher)
+        response = FeaturePublicationView.as_view()(request, pk=self.pub_a.id)
+
+        self.assertEqual(response.status_code, 201, response.data)
+        profile.refresh_from_db()
+        self.assertEqual(profile.solde, 5000)  # 10 000 - 5 000 FCFA
+        self.pub_a.refresh_from_db()
+        self.assertTrue(self.pub_a.is_featured)
+        promotion = self.pub_a.featured_promotions.get()
+        self.assertEqual(promotion.status, 'active')
+        self.assertIsNotNone(promotion.ends_at)
+
+    def test_featured_simulation_then_verify(self):
+        request = APIRequestFactory().post(
+            f'/api/publications/{self.pub_a.id}/feature/',
+            data={'days': 14, 'mode_paiement': 'simulation'},
+            format='json',
+        )
+        force_authenticate(request, user=self.publisher)
+        response = FeaturePublicationView.as_view()(request, pk=self.pub_a.id)
+        self.assertEqual(response.status_code, 201, response.data)
+        reference = response.data['transaction']
+        self.assertTrue(reference)
+        self.pub_a.refresh_from_db()
+        self.assertFalse(self.pub_a.is_featured)  # pas encore payé
+
+        verify = APIRequestFactory().post(
+            f'/api/publications/{self.pub_a.id}/feature/verify/',
+            data={'reference': reference},
+            format='json',
+        )
+        force_authenticate(verify, user=self.publisher)
+        verify_response = VerifyFeaturePaymentView.as_view()(
+            verify, pk=self.pub_a.id
+        )
+        self.assertEqual(verify_response.status_code, 200)
+        self.assertTrue(verify_response.data['featured'])
+        self.pub_a.refresh_from_db()
+        self.assertTrue(self.pub_a.is_featured)
+
+    def test_cannot_feature_another_publishers_publication(self):
+        request = APIRequestFactory().post(
+            f'/api/publications/{self.pub_a.id}/feature/',
+            data={'days': 7, 'mode_paiement': 'wallet'},
+            format='json',
+        )
+        force_authenticate(request, user=self.other_publisher)
+        response = FeaturePublicationView.as_view()(request, pk=self.pub_a.id)
+        self.assertEqual(response.status_code, 404)

@@ -3,13 +3,13 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   group('buildHealthStatusMessage', () {
-    test('renvoie le message serveur quand le service répond', () {
+    test('renvoie un message vide quand le service répond (production)', () {
       expect(
         buildHealthStatusMessage(
           isOnline: true,
           serverMessage: 'digital-press-api • ok • v1',
         ),
-        'digital-press-api • ok • v1',
+        '',
       );
     });
 

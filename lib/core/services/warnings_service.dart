@@ -2,6 +2,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../model/poster_received_warning.dart';
 import '../api/api_client.dart';
 
+
+
 /// État réel (et propre à chaque compte éditeur connecté) des avertissements
 /// reçus de l'administration, ainsi que du statut de bannissement.
 ///
@@ -39,7 +41,7 @@ final myWarningsProvider = FutureProvider.autoDispose<WarningsState>((ref) async
   bool isBanned = false;
   try {
     final profileResponse = await apiClient.get('accounts/me/publisher-profile/');
-    final data = profileResponse.data as Map<String, dynamic>;
+    final data = profileResponse.data ;
     isBanned = data['is_active'] == false;
   } catch (_) {
     // Si le profil éditeur n'est pas disponible, on suppose un compte actif.

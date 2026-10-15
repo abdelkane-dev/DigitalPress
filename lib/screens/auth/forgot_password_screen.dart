@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../../core/exceptions/failures.dart';
 import '../../core/services/auth_service.dart';
 
 class ForgotPasswordScreen extends ConsumerStatefulWidget {
@@ -23,15 +24,25 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
     super.dispose();
   }
 
+  String get _formattedEmail {
+    final raw = _emailController.text.trim();
+    if (raw.isEmpty) return raw;
+    if (!raw.contains('@')) {
+      return '$raw@gmail.com';
+    }
+    return raw;
+  }
+
   Future<void> _sendResetEmail() async {
     if (!_formKey.currentState!.validate()) return;
 
     setState(() => _isLoading = true);
 
     try {
+      final email = _formattedEmail;
       await ref
           .read(authServiceProvider)
-          .recoverPassword(_emailController.text);
+          .recoverPassword(email);
 
       if (mounted) {
         setState(() {
@@ -42,13 +53,14 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
         await Future.delayed(const Duration(milliseconds: 900));
         if (mounted) {
           context.push(
-            '/auth/verification?email=${Uri.encodeComponent(_emailController.text.trim())}&mode=reset',
+            '/auth/verification?email=${Uri.encodeComponent(email)}&mode=reset',
           );
         }
       }
     } catch (e) {
       if (mounted) {
-        _showSnackBar('Erreur: ${e.toString()}', isError: true);
+        final msg = e is Failure ? e.message : e.toString().replaceAll('Exception: ', '').trim();
+        _showSnackBar(msg, isError: true);
         setState(() => _isLoading = false);
       }
     }
@@ -221,16 +233,19 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
             children: [
               _buildTextField(
                 controller: _emailController,
-                label: 'Adresse email',
+                label: 'Adresse email (ex: nom@domaine.com)',
                 icon: Icons.email_outlined,
                 iconColor: const Color(0xFF2C74B3),
                 keyboardType: TextInputType.emailAddress,
                 validator: (value) {
-                  if (value == null || value.isEmpty) {
+                  if (value == null || value.trim().isEmpty) {
                     return 'Veuillez entrer votre email';
                   }
-                  if (!value.contains('@')) {
-                    return 'Email invalide';
+                  final raw = value.trim();
+                  final formatted = raw.contains('@') ? raw : '$raw@gmail.com';
+                  final emailRegex = RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$');
+                  if (!emailRegex.hasMatch(formatted)) {
+                    return 'Veuillez entrer une adresse email valide';
                   }
                   return null;
                 },

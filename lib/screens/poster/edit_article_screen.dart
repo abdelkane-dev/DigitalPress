@@ -1,10 +1,12 @@
+import 'dart:io' show File;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
-import 'dart:io';
 import '../../core/services/publication_service.dart';
+import '../../core/exceptions/failures.dart';
+import '../../core/utils/media_validation.dart';
 import '../../model/publication.dart';
 
 class EditArticleScreen extends ConsumerStatefulWidget {
@@ -23,13 +25,13 @@ class _EditArticleScreenState extends ConsumerState<EditArticleScreen> {
   late TextEditingController summaryController;
   late TextEditingController contentController;
   late TextEditingController priceController;
-  late TextEditingController resellPriceController;
   late TextEditingController tagsController;
   late TextEditingController coverUrlController;
 
   final TextEditingController categoryNameController = TextEditingController();
   late String selectedType;
   late bool isFree;
+  late bool isSubscriberExclusive;
 
   // Couverture : Image OU Vidéo
   String _coverType = 'image'; // 'image' ou 'video'
@@ -46,13 +48,13 @@ class _EditArticleScreenState extends ConsumerState<EditArticleScreen> {
     summaryController = TextEditingController(text: widget.publication.description);
     contentController = TextEditingController(text: widget.publication.content);
     priceController = TextEditingController(text: widget.publication.prix.toStringAsFixed(0));
-    resellPriceController = TextEditingController(text: widget.publication.resellPrice?.toStringAsFixed(0) ?? '');
     tagsController = TextEditingController(text: widget.publication.tags.join(', '));
     coverUrlController = TextEditingController(text: widget.publication.coverImage);
 
     categoryNameController.text = widget.publication.categoryName ?? '';
     selectedType = widget.publication.pubType;
     isFree = widget.publication.isFree;
+    isSubscriberExclusive = widget.publication.isSubscriberExclusive;
 
     // Déterminer si la publication a une vidéo de couverture
     if (widget.publication.videoUrl.isNotEmpty) {
@@ -70,7 +72,6 @@ class _EditArticleScreenState extends ConsumerState<EditArticleScreen> {
     summaryController.dispose();
     contentController.dispose();
     priceController.dispose();
-    resellPriceController.dispose();
     tagsController.dispose();
     coverUrlController.dispose();
     categoryNameController.dispose();
@@ -78,11 +79,38 @@ class _EditArticleScreenState extends ConsumerState<EditArticleScreen> {
   }
 
   Future<void> _pickCoverImage() async {
-    final result = await FilePicker.platform.pickFiles(type: FileType.image, withData: kIsWeb);
+    final result = await FilePicker.platform.pickFiles(type: FileType.image, withData: true);
     if (result != null && result.files.isNotEmpty) {
+      var file = result.files.single;
+
+      // Fallback lecture bytes sur Android / iOS si withData n'a pas rempli bytes
+      if ((file.bytes == null || file.bytes!.isEmpty) &&
+          !kIsWeb &&
+          file.path != null &&
+          file.path!.isNotEmpty) {
+        try {
+          final readBytes = await File(file.path!).readAsBytes();
+          file = PlatformFile(
+            name: file.name,
+            size: readBytes.length,
+            bytes: readBytes,
+            path: file.path,
+          );
+        } catch (_) {}
+      }
+
+      // ─── VALIDATION COUVERTURE (photo légère, normes presse) ──────────
+      final error = validateCoverImage(file);
+      if (error != null) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(error), backgroundColor: Colors.red),
+        );
+        return;
+      }
       setState(() {
-        selectedCoverImageFile = result.files.single;
-        coverUrlController.text = result.files.single.name;
+        selectedCoverImageFile = file;
+        coverUrlController.clear();
       });
     }
   }
@@ -91,6 +119,24 @@ class _EditArticleScreenState extends ConsumerState<EditArticleScreen> {
     final result = await FilePicker.platform.pickFiles(type: FileType.video, withData: kIsWeb);
     if (result != null && result.files.isNotEmpty) {
       final file = result.files.single;
+      // ─── VALIDATION COUVERTURE VIDÉO (quelques secondes max) ──────────
+      final sizeError = validateCoverVideoSize(file);
+      if (sizeError != null) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(sizeError), backgroundColor: Colors.red),
+        );
+        return;
+      }
+      final duration = await videoDuration(file);
+      final durationError = validateCoverVideoDuration(duration);
+      if (durationError != null) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(durationError), backgroundColor: Colors.red),
+        );
+        return;
+      }
       setState(() => _isUploading = true);
       try {
         final url = await ref
@@ -146,7 +192,7 @@ class _EditArticleScreenState extends ConsumerState<EditArticleScreen> {
           'pdf', 'txt',
         ],
         allowMultiple: true,
-        withData: kIsWeb,
+        withData: true,
       );
 
       if (result == null || result.files.isEmpty) return;
@@ -154,23 +200,44 @@ class _EditArticleScreenState extends ConsumerState<EditArticleScreen> {
       setState(() => _isUploading = true);
       final service = ref.read(publicationServiceProvider);
 
-      for (final file in result.files) {
+      for (var file in result.files) {
+        if ((file.bytes == null || file.bytes!.isEmpty) &&
+            !kIsWeb &&
+            file.path != null &&
+            file.path!.isNotEmpty) {
+          try {
+            final readBytes = await File(file.path!).readAsBytes();
+            file = PlatformFile(
+              name: file.name,
+              size: readBytes.length,
+              bytes: readBytes,
+              path: file.path,
+            );
+          } catch (_) {}
+        }
+
         final fileName = file.name;
         final extension = fileName.split('.').last.toLowerCase();
 
         String contentToAdd = '';
 
         if (extension == 'txt') {
+          final textError = validateTextFile(file);
+          if (textError != null) {
+            _showMediaError(textError, fileName);
+            continue;
+          }
+          // Le nom du fichier n'est JAMAIS inséré dans le contenu.
           try {
             String textContent = '';
             if (file.bytes != null) {
-               textContent = String.fromCharCodes(file.bytes!);
+              textContent = String.fromCharCodes(file.bytes!);
             } else if (!kIsWeb && file.path != null) {
-               textContent = '📄 [$fileName] (Text content attached)';
+              textContent = '';
             }
             contentToAdd = '$textContent\n\n---\n\n';
           } catch (_) {
-            contentToAdd = '📄 [$fileName]\n\n---\n\n';
+            contentToAdd = '';
           }
           setState(() {
             contentController.text = contentController.text + contentToAdd;
@@ -185,7 +252,7 @@ class _EditArticleScreenState extends ConsumerState<EditArticleScreen> {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
-                content: Text('Erreur upload $fileName: $e'),
+                content: Text('Erreur upload : $e'),
                 backgroundColor: Colors.red,
               ),
             );
@@ -193,14 +260,38 @@ class _EditArticleScreenState extends ConsumerState<EditArticleScreen> {
           continue;
         }
 
+        // ─── AUCUNE MENTION « image / vidéo / pdf » DANS LA PUBLICATION ──
+        // Seule l'URL nue (`[]()`) est insérée : le lecteur rend le média
+        // sans aucun texte parasite (type détecté par extension d'URL).
         if (['jpg', 'jpeg', 'png', 'gif', 'webp'].contains(extension)) {
-          contentToAdd = '![$fileName]($url)\n\n';
+          final imageError = validateContentImage(file);
+          if (imageError != null) {
+            _showMediaError(imageError, fileName);
+            continue;
+          }
+          contentToAdd = '![]($url)\n\n';
         } else if (['mp4', 'avi', 'mov', 'mkv', 'webm'].contains(extension)) {
-          contentToAdd = '🎬 [$fileName]($url)\n\n';
+          final sizeError = validateContentVideoSize(file);
+          if (sizeError != null) {
+            _showMediaError(sizeError, fileName);
+            continue;
+          }
+          final duration = await videoDuration(file);
+          final durationError = validateContentVideoDuration(duration);
+          if (durationError != null) {
+            _showMediaError(durationError, fileName);
+            continue;
+          }
+          contentToAdd = '[]($url)\n\n';
         } else if (extension == 'pdf') {
-          contentToAdd = '📄 [$fileName]($url)\n\n';
+          final pdfError = await validatePdf(file);
+          if (pdfError != null) {
+            _showMediaError(pdfError, fileName);
+            continue;
+          }
+          contentToAdd = '[]($url)\n\n';
         } else {
-          contentToAdd = '[$fileName]($url)\n\n';
+          contentToAdd = '[]($url)\n\n';
         }
 
         if (mounted) {
@@ -230,6 +321,19 @@ class _EditArticleScreenState extends ConsumerState<EditArticleScreen> {
     }
   }
 
+  /// Affiche l'erreur de validation d'un média (nom du fichier visible
+  /// uniquement dans ce message interne, jamais dans le contenu publié).
+  void _showMediaError(String message, String fileName) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('« $fileName » : $message'),
+        backgroundColor: Colors.red,
+        duration: const Duration(seconds: 5),
+      ),
+    );
+  }
+
   void _save() async {
     if (!_formKey.currentState!.validate()) return;
     final categoryName = categoryNameController.text.trim();
@@ -247,8 +351,11 @@ class _EditArticleScreenState extends ConsumerState<EditArticleScreen> {
       'category_name': categoryName,
       'pub_type': selectedType,
       'prix': isFree ? 0.0 : double.parse(priceController.text.trim()),
-      'resell_price': resellPriceController.text.trim().isNotEmpty ? double.parse(resellPriceController.text.trim()) : null,
+      // Un seul champ de prix dans l'interface : on préserve la valeur de
+      // revente existante (gérée côté backend) sans l'exposer ici.
+      'resell_price': widget.publication.resellPrice,
       'is_free': isFree,
+      'is_subscriber_exclusive': isSubscriberExclusive,
       'tags': tagsController.text.trim(),
       'cover_image': _coverType == 'image' ? coverUrlController.text.trim() : '',
       'video_url': _coverType == 'video' ? _coverVideoUrl : '',
@@ -270,8 +377,9 @@ class _EditArticleScreenState extends ConsumerState<EditArticleScreen> {
       }
     } catch (e) {
       if (mounted) {
+        final msg = e is Failure ? e.message : e.toString().replaceAll('Exception: ', '');
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur : $e'), backgroundColor: Colors.red),
+          SnackBar(content: Text('Erreur : $msg'), backgroundColor: Colors.red),
         );
       }
     }
@@ -369,8 +477,8 @@ class _EditArticleScreenState extends ConsumerState<EditArticleScreen> {
 
                     const SizedBox(height: 14),
 
-                    DropdownButtonFormField<String>(
-                      initialValue: selectedType,
+                                        DropdownButtonFormField<String>(
+                      value: selectedType,  // ignore: deprecated_member_use
                       decoration: _inputDecoration('Type de publication', Icons.layers_outlined),
                       items: const [
                         DropdownMenuItem(value: 'article', child: Text('Article')),
@@ -444,7 +552,12 @@ class _EditArticleScreenState extends ConsumerState<EditArticleScreen> {
                                 filled: widget.publication.originalPublicationId != null,
                                 fillColor: widget.publication.originalPublicationId != null ? Colors.grey.shade200 : const Color(0xFFF8FAFC),
                               ),
-                              validator: (value) => value == null || value.isEmpty ? 'Champ requis' : null,
+                              validator: (value) =>
+                                  value == null || value.isEmpty
+                                      ? (selectedCoverImageFile != null
+                                          ? null
+                                          : 'Champ requis')
+                                      : null,
                             ),
                           ),
                           const SizedBox(width: 10),
@@ -454,11 +567,29 @@ class _EditArticleScreenState extends ConsumerState<EditArticleScreen> {
                       ),
                       if (selectedCoverImageFile != null) ...[
                         const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            const Icon(Icons.check_circle_rounded,
+                                color: Colors.green, size: 18),
+                            const SizedBox(width: 6),
+                            Text(
+                              'Image locale sélectionnée ✓',
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.green.shade800,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
                         ClipRRect(
                           borderRadius: BorderRadius.circular(10), 
                           child: selectedCoverImageFile!.bytes != null
                               ? Image.memory(selectedCoverImageFile!.bytes!, height: 120, width: double.infinity, fit: BoxFit.cover)
-                              : Image.file(File(selectedCoverImageFile!.path!), height: 120, width: double.infinity, fit: BoxFit.cover),
+                              : (kIsWeb
+                                  ? const SizedBox(height: 120, child: Center(child: Text('Aperçu non disponible')))
+                                  : (selectedCoverImageFile!.bytes != null ? Image.memory(selectedCoverImageFile!.bytes!, height: 120, width: double.infinity, fit: BoxFit.cover) : const SizedBox(height: 120, child: Center(child: Text('Aperçu non disponible'))))),
                         ),
                       ],
                     ] else ...[
@@ -486,42 +617,33 @@ class _EditArticleScreenState extends ConsumerState<EditArticleScreen> {
                     const SizedBox(height: 14),
 
                     SwitchListTile(
-                      title: const Text('Contenu Gratuit'),
-                      subtitle: const Text('Les lecteurs peuvent lire cet article sans payer'),
+                      title: const Text('Accès libre'),
+                      subtitle: const Text('Les lecteurs peuvent lire cet article sans achat à l\'unité'),
                       value: isFree,
                       activeThumbColor: Colors.orange.shade700,
-                      onChanged: (val) { setState(() { isFree = val; if (val) priceController.text = '0'; }); },
+                      onChanged: (val) { setState(() { isFree = val; if (val) { priceController.text = '0'; isSubscriberExclusive = false; } }); },
+                    ),
+
+                    SwitchListTile(
+                      title: const Text('Réservé aux abonnés'),
+                      subtitle: const Text('Contenu exclusif visible uniquement par vos abonnés'),
+                      value: isSubscriberExclusive,
+                      activeThumbColor: Colors.orange.shade700,
+                      onChanged: (val) { setState(() { isSubscriberExclusive = val; if (val) isFree = false; }); },
                     ),
 
                     if (!isFree) ...[
                       const SizedBox(height: 8),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: TextFormField(
-                              controller: priceController,
-                              keyboardType: TextInputType.number,
-                              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                              decoration: _inputDecoration('Prix individuel (FCFA)', Icons.payments_outlined),
-                              validator: (v) { if (v == null || v.isEmpty) return 'Requis'; if (double.tryParse(v) == null) return 'Nombre invalide'; return null; },
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: TextFormField(
-                              controller: resellPriceController,
-                              keyboardType: TextInputType.number,
-                              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                              decoration: _inputDecoration('Prix droit de revente', Icons.handshake_outlined).copyWith(
-                                helperText: 'Optionnel',
-                              ),
-                              validator: (v) {
-                                if (v != null && v.isNotEmpty && double.tryParse(v) == null) return 'Invalide';
-                                return null;
-                              },
-                            ),
-                          ),
-                        ],
+                      TextFormField(
+                        controller: priceController,
+                        keyboardType: TextInputType.number,
+                        inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                        decoration: _inputDecoration('Prix individuel (FCFA)', Icons.payments_outlined),
+                        validator: (v) {
+                          if (v == null || v.isEmpty) return 'Requis';
+                          if (double.tryParse(v) == null) return 'Nombre invalide';
+                          return null;
+                        },
                       ),
                     ],
 

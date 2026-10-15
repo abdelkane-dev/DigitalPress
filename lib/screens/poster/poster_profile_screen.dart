@@ -1,12 +1,24 @@
-import 'dart:io';
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:dio/dio.dart';
+import 'package:http_parser/http_parser.dart';
 import '../../core/api/api_client.dart';
 import '../../core/services/auth_service.dart';
+import '../../core/services/abonnement_service.dart';
+import '../../core/services/publication_service.dart';
+import '../../core/services/app_notification_service.dart';
+import '../../core/utils/friendly_error.dart';
+import '../../model/publication.dart';
+import '../../model/abonnement.dart';
+import '../../widgets/payment_selection_sheet.dart';
+
+
 
 /// Page publique du profil d'un éditeur DigitalPress.
 /// Design inspiré de TikTok (minimaliste, axé créateur).
@@ -20,6 +32,8 @@ class PosterProfileScreen extends ConsumerStatefulWidget {
 
 class _PosterProfileScreenState extends ConsumerState<PosterProfileScreen> {
   final _formKey = GlobalKey<FormState>();
+  final _usernameController = TextEditingController();
+  final _nameController = TextEditingController();
   final _companyController = TextEditingController();
   final _websiteController = TextEditingController();
   final _addressController = TextEditingController();
@@ -30,15 +44,38 @@ class _PosterProfileScreenState extends ConsumerState<PosterProfileScreen> {
   bool _saving = false;
   String? _error;
   Map<String, dynamic>? _profile;
+  // Clé qui force la reconstruction du widget Image pour invalider le cache
+  int _coverKey = 0;
+
+  List<Publication> _articles = [];
+  bool _loadingArticles = false;
+  Map<String, dynamic>? _mySubscription; // Abonnement actif de l'utilisateur à cet éditeur
 
   @override
   void initState() {
     super.initState();
     _load();
+    // Écoute les événements temps réel (achat, abonnement, mise à jour profil)
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ref.listen(realtimeEventProvider, (_, next) {
+        if (next == null) return;
+        final ev = next.event;
+        if (ev == 'abonnement_updated' ||
+            ev == 'payment_success' ||
+            ev == 'transaction_updated' ||
+            ev == 'publication_published') {
+          if (mounted) {
+            _load();
+          }
+        }
+      });
+    });
   }
 
   @override
   void dispose() {
+    _usernameController.dispose();
+    _nameController.dispose();
     _companyController.dispose();
     _websiteController.dispose();
     _addressController.dispose();
@@ -54,17 +91,75 @@ class _PosterProfileScreenState extends ConsumerState<PosterProfileScreen> {
       final response = widget.publisherId == null
           ? await apiClient.get('accounts/me/publisher-profile/')
           : await apiClient.get('accounts/publishers/public/${widget.publisherId}/');
-      final data = response.data as Map<String, dynamic>;
+      final data = response.data ;
       _profile = data;
+      _usernameController.text = data['username']?.toString() ?? '';
+      _nameController.text =
+          ref.read(authServiceProvider).currentUser?.displayName ?? data['company_name']?.toString() ?? '';
       _companyController.text = data['company_name']?.toString() ?? '';
       _websiteController.text = data['website']?.toString() ?? '';
       _addressController.text = data['address']?.toString() ?? '';
       _siretController.text = data['siret']?.toString() ?? '';
       _bioController.text = data['bio']?.toString() ?? '';
     } catch (e) {
-      _error = e.toString();
+      _error = friendlyError(e);
     } finally {
       if (mounted) setState(() => _loading = false);
+    }
+    // Vérifier si l'utilisateur a un abonnement actif à cet éditeur (vue publique)
+    if (_isPublicView) {
+      unawaited(_checkSubscription());
+    }
+    // Les articles publiés se chargent séparément (endpoint public
+    // PublicationListView?publisher_id=X, déjà filtré status='published')
+    // pour ne jamais bloquer l'affichage du profil si ça échoue.
+    unawaited(_loadArticles());
+  }
+
+  Future<void> _checkSubscription() async {
+    try {
+      final service = ref.read(abonnementServiceProvider);
+      final abonnements = await service.getMyAbonnements();
+      final pubId = widget.publisherId;
+      if (pubId == null) return;
+      // Trouver un abonnement actif pour cet éditeur
+      final active = abonnements.where((a) =>
+        a.publisherId == pubId && a.status == 'active' &&
+        (a.endDate == null || a.endDate!.isAfter(DateTime.now()))
+      ).toList();
+      if (mounted && active.isNotEmpty) {
+        setState(() => _mySubscription = {
+          'plan_name': active.first.planName ?? 'Abonnement',
+          'end_date': active.first.endDate?.toIso8601String() ?? '',
+          'days_remaining': active.first.endDate != null
+            ? active.first.endDate!.difference(DateTime.now()).inDays
+            : 0,
+        });
+      }
+    } catch (_) {
+      // Silencieux : le bouton "S'abonner" reste affiché.
+    }
+  }
+
+  Future<void> _loadArticles() async {
+    // widget.publisherId (vue publique) est un User.id ; en vue "soi-même"
+    // (widget.publisherId == null), _profile['id'] est l'id du
+    // PublisherProfile (PAS le même id !) — il faut l'id User réel de
+    // l'utilisateur connecté, sinon la liste d'articles serait toujours
+    // vide côté éditeur consultant son propre profil.
+    final id = widget.publisherId ??
+        int.tryParse(ref.read(authServiceProvider).currentUser?.id ?? '');
+    if (id == null) return;
+    setState(() => _loadingArticles = true);
+    try {
+      final articles = await ref
+          .read(publicationServiceProvider)
+          .getPublications(publisherId: id);
+      if (mounted) setState(() => _articles = articles);
+    } catch (_) {
+      // Silencieux : la grille affichera simplement "aucun article".
+    } finally {
+      if (mounted) setState(() => _loadingArticles = false);
     }
   }
 
@@ -83,7 +178,21 @@ class _PosterProfileScreenState extends ConsumerState<PosterProfileScreen> {
           'bio': _bioController.text.trim(),
         },
       );
-      _profile = response.data as Map<String, dynamic>;
+      _profile = response.data ;
+      // @username + nom complet : champs du compte User (pas du profil
+      // éditeur) — mis à jour via /accounts/me/ pour un contrôle TikTok
+      // complet (nom, @username, bio, avatar, couverture...).
+      final authService = ref.read(authServiceProvider);
+      final user = authService.currentUser;
+      final usernameChanged = _usernameController.text.trim().isNotEmpty &&
+          _usernameController.text.trim() != (user?.username ?? '');
+      final nameChanged = _nameController.text.trim() != (user?.displayName ?? '');
+      if (usernameChanged || nameChanged) {
+        await authService.updateProfile(
+          username: usernameChanged ? _usernameController.text.trim() : null,
+          name: nameChanged ? _nameController.text.trim() : null,
+        );
+      }
       if (mounted) {
         Navigator.pop(context); // Fermer le bottom sheet
         ScaffoldMessenger.of(context).showSnackBar(
@@ -92,7 +201,7 @@ class _PosterProfileScreenState extends ConsumerState<PosterProfileScreen> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur : $e')));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e))));
       }
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -101,7 +210,7 @@ class _PosterProfileScreenState extends ConsumerState<PosterProfileScreen> {
 
   Future<void> _pickAndUploadAvatar() async {
     final picker = ImagePicker();
-    final xfile = await picker.pickImage(source: ImageSource.gallery, imageQuality: 80);
+    final xfile = await picker.pickImage(source: ImageSource.gallery, imageQuality: 85);
     if (xfile == null) return;
 
     if (mounted) {
@@ -112,22 +221,114 @@ class _PosterProfileScreenState extends ConsumerState<PosterProfileScreen> {
 
     try {
       final authService = ref.read(authServiceProvider);
+      // Vider l'ancien avatar du cache avant upload
+      final oldAvatar = authService.currentUser?.photoUrl ?? '';
+      if (oldAvatar.isNotEmpty) {
+        await CachedNetworkImage.evictFromCache(oldAvatar);
+      }
       await authService.updateProfile(avatarFile: xfile);
+      // Rafraîchir l'état auth (le stream notifiera les widgets)
+      await authService.refreshProfile();
+      await _load();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Photo de profil mise à jour avec succès!')),
+          const SnackBar(
+            content: Text('✅ Photo de profil mise à jour avec succès!'),
+            backgroundColor: Color(0xFF10B981),
+          ),
         );
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur lors de la mise à jour : $e')),
+          SnackBar(content: Text(friendlyError(e))),
+        );
+      }
+    }
+  }
+
+  /// Change la couverture/bannière de la page publique (façon TikTok) :
+  /// l'image est uploadée directement sur PublisherProfile via accounts/me/publisher-profile/
+  /// et mise à jour immédiatement en mémoire pour un affichage instantané.
+  Future<void> _pickAndUploadCover() async {
+    final picker = ImagePicker();
+    final xfile = await picker.pickImage(source: ImageSource.gallery, imageQuality: 85);
+    if (xfile == null) return;
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Mise à jour de la couverture en cours...'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+    }
+
+    try {
+      final bytes = await xfile.readAsBytes();
+      final filename = xfile.name.isNotEmpty ? xfile.name : 'cover.jpg';
+      
+      // Upload direct sur accounts/me/publisher-profile/
+      final apiClient = ref.read(apiClientProvider);
+      final formData = FormData.fromMap({
+        'cover_image': MultipartFile.fromBytes(
+          bytes,
+          filename: filename,
+          contentType: MediaType('image', 'jpeg'),
+        ),
+      });
+
+      final response = await apiClient.patch(
+        'accounts/me/publisher-profile/',
+        data: formData,
+      );
+
+      final newCover = response.data?['cover_image']?.toString() ?? '';
+
+      // Vider le cache de l'ancienne et nouvelle image
+      final oldCover = _profile?['cover_image']?.toString() ?? '';
+      if (oldCover.isNotEmpty) {
+        await CachedNetworkImage.evictFromCache(oldCover);
+      }
+      if (newCover.isNotEmpty) {
+        await CachedNetworkImage.evictFromCache(newCover);
+      }
+
+      if (mounted) {
+        setState(() {
+          _coverKey++;
+          if (_profile != null && newCover.isNotEmpty) {
+            _profile!['cover_image'] = newCover;
+          }
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('✅ Couverture mise à jour avec succès !'),
+            backgroundColor: Color(0xFF10B981),
+          ),
+        );
+      }
+
+      // Recharger en arrière-plan pour synchroniser tous les champs
+      await _load();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(friendlyError(e))),
         );
       }
     }
   }
 
   bool get _isPublicView => widget.publisherId != null;
+
+  /// Vrai si l'utilisateur connecté consulte son propre profil via la vue
+  /// publique (ex: depuis un article ou une recherche). Il peut alors éditer
+  /// son profil même en mode public.
+  bool _isViewingOwnProfile(String? currentUserId) {
+    if (!_isPublicView || currentUserId == null) return false;
+    return widget.publisherId.toString() == currentUserId;
+  }
 
   String _initials(String name) {
     if (name.isEmpty) return '?';
@@ -185,6 +386,21 @@ class _PosterProfileScreenState extends ConsumerState<PosterProfileScreen> {
                         ),
                         const SizedBox(height: 24),
                       ],
+                      _field(
+                        _usernameController,
+                        '@username (identifiant public)',
+                        Icons.alternate_email_rounded,
+                        validator: (v) {
+                          if (v == null || v.trim().isEmpty) return 'Champ requis';
+                          if (!RegExp(r'^[a-zA-Z0-9_]{3,30}$').hasMatch(v.trim())) {
+                            return '3 à 30 caractères : lettres, chiffres, _';
+                          }
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 14),
+                      _field(_nameController, 'Nom complet', Icons.person_outline_rounded),
+                      const SizedBox(height: 14),
                       _field(_companyController, "Nom de l'entreprise", Icons.business_rounded,
                           validator: (v) => (v == null || v.trim().isEmpty) ? 'Champ requis' : null),
                       const SizedBox(height: 14),
@@ -264,14 +480,8 @@ class _PosterProfileScreenState extends ConsumerState<PosterProfileScreen> {
                   context.push('/poster/comptabilite');
                 },
               ),
-              ListTile(
-                leading: const Icon(Icons.share_rounded, color: Colors.black87),
-                title: const Text('Partager le profil', style: TextStyle(fontWeight: FontWeight.w600)),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Lien copié dans le presse-papier')));
-                },
-              ),
+              // Partage du profil retiré : rien ne doit sortir de l'app
+              // (demande explicite anti-partage).
               const SizedBox(height: 16),
             ],
           ),
@@ -337,15 +547,18 @@ class _PosterProfileScreenState extends ConsumerState<PosterProfileScreen> {
     final companyName = data['company_name']?.toString() ?? '';
     final bio = data['bio']?.toString() ?? '';
     final website = data['website']?.toString() ?? '';
+    final coverImage = data['cover_image']?.toString() ?? '';
     final isActive = data['is_active'] == true;
-    final totalArticles = data['total_articles']?.toString() ?? '0';
+    final hasVerifiedBadge = data['has_verified_badge'] == true;
     final publishedArticles = data['published_articles']?.toString() ?? '0';
     final totalViews = data['total_views']?.toString() ?? '0';
+    final subscriberCount = data['subscriber_count']?.toString() ?? '0';
     final displayName = companyName.isNotEmpty ? companyName : username;
     final initials = _initials(displayName);
     
     final currentUser = ref.watch(authStateProvider).value;
-    final avatarUrl = !_isPublicView ? currentUser?.photoUrl : data['avatar']?.toString();
+    final isOwner = _isViewingOwnProfile(currentUser?.id);
+    final avatarUrl = (!_isPublicView || isOwner) ? (currentUser?.photoUrl ?? data['avatar']?.toString()) : data['avatar']?.toString();
 
     return Scaffold(
       backgroundColor: const Color(0xFFFFF7ED),
@@ -354,13 +567,25 @@ class _PosterProfileScreenState extends ConsumerState<PosterProfileScreen> {
         elevation: 0,
         scrolledUnderElevation: 0,
         iconTheme: const IconThemeData(color: Colors.black87),
-        title: Text(
-          displayName,
-          style: const TextStyle(color: Colors.black87, fontWeight: FontWeight.bold, fontSize: 16),
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Flexible(
+              child: Text(
+                displayName,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: Colors.black87, fontWeight: FontWeight.bold, fontSize: 16),
+              ),
+            ),
+            if (hasVerifiedBadge) ...[
+              const SizedBox(width: 4),
+              const Icon(Icons.verified_rounded, color: Color(0xFF2563EB), size: 18),
+            ],
+          ],
         ),
         centerTitle: true,
         actions: [
-          if (!_isPublicView)
+          if (!_isPublicView || isOwner)
             IconButton(
               icon: const Icon(Icons.menu_rounded),
               onPressed: _openSettingsSheet,
@@ -379,18 +604,116 @@ class _PosterProfileScreenState extends ConsumerState<PosterProfileScreen> {
                       clipBehavior: Clip.none,
                       alignment: Alignment.bottomCenter,
                       children: [
-                        // Banner
-                        Container(
-                          height: 140,
-                          width: double.infinity,
-                          decoration: const BoxDecoration(
-                            gradient: LinearGradient(
-                              colors: [Color(0xFFEA580C), Color(0xFFFFEDD5)],
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                            ),
+                        // Banner / Couverture (image modifiable, façon TikTok)
+                        GestureDetector(
+                          onTap: (!_isPublicView || isOwner) ? _pickAndUploadCover : null,
+                          behavior: HitTestBehavior.opaque,
+                          child: SizedBox(
+                            height: 160,
+                            width: double.infinity,
+                            child: coverImage.isNotEmpty
+                                ? CachedNetworkImage(
+                                    key: ValueKey('cover_${coverImage}_$_coverKey'),
+                                    imageUrl: coverImage,
+                                    fit: BoxFit.cover,
+                                    width: double.infinity,
+                                    height: 160,
+                                    placeholder: (context, url) => Container(
+                                      decoration: const BoxDecoration(
+                                        gradient: LinearGradient(
+                                          colors: [Color(0xFFEA580C), Color(0xFFFFEDD5)],
+                                          begin: Alignment.topLeft,
+                                          end: Alignment.bottomRight,
+                                        ),
+                                      ),
+                                      child: const Center(
+                                        child: CircularProgressIndicator(
+                                          color: Colors.white,
+                                          strokeWidth: 2,
+                                        ),
+                                      ),
+                                    ),
+                                    errorWidget: (context, url, error) => Image.network(
+                                      coverImage,
+                                      fit: BoxFit.cover,
+                                      errorBuilder: (_, __, ___) => Container(
+                                        decoration: const BoxDecoration(
+                                          gradient: LinearGradient(
+                                            colors: [Color(0xFFEA580C), Color(0xFFFFEDD5)],
+                                            begin: Alignment.topLeft,
+                                            end: Alignment.bottomRight,
+                                          ),
+                                        ),
+                                        child: const Center(
+                                          child: Icon(Icons.photo_camera_rounded,
+                                              color: Colors.white54, size: 40),
+                                        ),
+                                      ),
+                                    ),
+                                  )
+                                : Container(
+                                    decoration: const BoxDecoration(
+                                      gradient: LinearGradient(
+                                        colors: [Color(0xFFEA580C), Color(0xFFFFEDD5)],
+                                        begin: Alignment.topLeft,
+                                        end: Alignment.bottomRight,
+                                      ),
+                                    ),
+                                    child: const Center(
+                                      child: Column(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Icon(Icons.add_photo_alternate_rounded,
+                                              color: Colors.white70, size: 36),
+                                          SizedBox(height: 6),
+                                          Text('Ajouter une couverture',
+                                              style: TextStyle(
+                                                color: Colors.white70,
+                                                fontSize: 13,
+                                                fontWeight: FontWeight.w600,
+                                              )),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
                           ),
                         ),
+                        // Bouton de modification de la couverture bien visible (self-view & vue publique par le propriétaire)
+                        if (!_isPublicView || isOwner)
+                          Positioned(
+                            top: 10,
+                            right: 12,
+                            child: GestureDetector(
+                              onTap: _pickAndUploadCover,
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                decoration: BoxDecoration(
+                                  color: Colors.black.withValues(alpha: 0.6),
+                                  borderRadius: BorderRadius.circular(20),
+                                  border: Border.all(color: Colors.white.withValues(alpha: 0.3)),
+                                ),
+                                child: const Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      Icons.photo_camera_rounded,
+                                      color: Colors.white,
+                                      size: 16,
+                                    ),
+                                    SizedBox(width: 6),
+                                    Text(
+                                      'Modifier',
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
                         // Avatar
                         Positioned(
                           bottom: -48,
@@ -420,7 +743,7 @@ class _PosterProfileScreenState extends ConsumerState<PosterProfileScreen> {
                                       : null,
                                 ),
                               ),
-                              if (!_isPublicView)
+                              if (!_isPublicView || isOwner)
                                 Positioned(
                                   bottom: 0,
                                   right: 0,
@@ -443,10 +766,42 @@ class _PosterProfileScreenState extends ConsumerState<PosterProfileScreen> {
                       ],
                     ),
                     const SizedBox(height: 56),
-                    // @Username
+                    // ─── NOM + @username (design retravaillé) ─────────────
+                    // Le nom de l'entreprise s'affiche en évidence sous
+                    // l'avatar (le @username reste le sous-titre), comme sur
+                    // les profils créateur : hiérarchie visuelle claire.
                     Text(
-                      '@$username',
-                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Colors.black87),
+                      displayName,
+                      textAlign: TextAlign.center,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                          fontSize: 20, fontWeight: FontWeight.w900, color: Colors.black87, letterSpacing: -0.3),
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(Icons.alternate_email_rounded,
+                            size: 15, color: Colors.grey),
+                        const SizedBox(width: 2),
+                        Flexible(
+                          child: Text(
+                            username,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.black54),
+                          ),
+                        ),
+                        if (hasVerifiedBadge) ...[
+                          const SizedBox(width: 6),
+                          const Icon(Icons.verified_rounded,
+                              color: Color(0xFF2563EB), size: 18),
+                        ],
+                      ],
                     ),
                     if (!isActive) ...[
                       const SizedBox(height: 8),
@@ -461,52 +816,82 @@ class _PosterProfileScreenState extends ConsumerState<PosterProfileScreen> {
                       ),
                     ],
                     const SizedBox(height: 16),
-                    // Stats Row
+                    // Stats Row — Publiés / Vues / Abonnés : 3 métriques
+                    // distinctes et utiles pour un visiteur (l'ancien
+                    // "Articles" faisait doublon avec "Publiés" et n'était
+                    // de toute façon jamais renvoyé par l'API).
                     Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        _buildStatColumn(totalArticles, 'Articles'),
+                        Flexible(child: _buildStatColumn(publishedArticles, 'Publiés')),
                         _buildStatDivider(),
-                        _buildStatColumn(publishedArticles, 'Publiés'),
+                        Flexible(child: _buildStatColumn(totalViews, 'Vues')),
                         _buildStatDivider(),
-                        _buildStatColumn(totalViews, 'Vues'),
+                        Flexible(child: _buildStatColumn(subscriberCount, 'Abonnés')),
                       ],
                     ),
+                    // ─── BANNIÈRE COMMISSION SUPPRIMÉE (demande explicite) ─
+                    // « % Commission plateforme : 20.0% • Palier Basique » :
+                    // cette information interne n'a rien à faire sur le profil
+                    // (publique ou personnel) — elle ne concerne que la
+                    // comptabilité éditeur. Supprimée définitivement de cette
+                    // page (la commission reste visible dans « Comptabilité
+                    // Presse » où elle a du sens).
                     const SizedBox(height: 16),
                     // Action Buttons
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        if (_isPublicView) ...[
-                          _buildButton(
-                            text: "S'abonner",
-                            color: const Color(0xFFEA580C),
-                            textColor: Colors.white,
-                            onTap: () {
-                              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Fonctionnalité à venir')));
-                            },
-                          ),
-                          const SizedBox(width: 8),
-                          _buildIconButton(Icons.camera_alt_outlined),
-                        ] else ...[
-                          _buildButton(
-                            text: 'Modifier le profil',
-                            color: Colors.grey.shade100,
-                            textColor: Colors.black87,
-                            onTap: _openEditSheet,
-                          ),
-                          const SizedBox(width: 8),
-                          _buildButton(
-                            text: 'Partager le profil',
-                            color: Colors.grey.shade100,
-                            textColor: Colors.black87,
-                            onTap: () {
-                              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Lien copié')));
-                            },
-                          ),
-                        ]
-                      ],
-                    ),
+                    Builder(builder: (context) {
+                      final currentUser = ref.watch(authStateProvider).value;
+                      final isOwner = _isViewingOwnProfile(currentUser?.id);
+                      return Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          if (!_isPublicView || isOwner) ...[
+                            // Toujours afficher « Modifier le profil » si c'est le propre profil
+                            _buildButton(
+                              text: 'Modifier le profil',
+                              color: const Color(0xFFEA580C),
+                              textColor: Colors.white,
+                              onTap: _openEditSheet,
+                            ),
+                          ] else if (_isPublicView) ...[
+                            if (_mySubscription != null) ...[
+                              // Déjà abonné : afficher la durée restante
+                              _buildButton(
+                                text: _mySubscription!['days_remaining'] > 0
+                                  ? "Abonné • ${_mySubscription!['days_remaining']}j restants"
+                                  : "Abonné • ${_mySubscription!['plan_name']}",
+                                color: const Color(0xFF10B981),
+                                textColor: Colors.white,
+                                onTap: () {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text(
+                                        'Abonnement ${_mySubscription!['plan_name']} actif. '
+                                        'Expire le ${_mySubscription!['end_date'].substring(0, 10)}.'),
+                                      backgroundColor: const Color(0xFF10B981),
+                                    ),
+                                  );
+                                },
+                              ),
+                            ] else ...[
+                              _buildButton(
+                                text: "S'abonner",
+                                color: const Color(0xFFEA580C),
+                                textColor: Colors.white,
+                                onTap: _openSubscribeSheet,
+                              ),
+                            ],
+                            if ((website).isNotEmpty) ...[
+                              const SizedBox(width: 8),
+                              _buildIconButton(
+                                Icons.language_rounded,
+                                onTap: () => _launchWebsite(website),
+                              ),
+                            ],
+                          ]
+                        ],
+                      );
+                    }),
                     const SizedBox(height: 16),
                     // Bio
                     if (bio.isNotEmpty) ...[
@@ -541,15 +926,22 @@ class _PosterProfileScreenState extends ConsumerState<PosterProfileScreen> {
                       ),
                       const SizedBox(height: 12),
                     ],
-                    // Tab Bar
+                    // Tab Bar (libellés ajoutés : Publications / Exclusif)
                     const Divider(height: 1),
                     TabBar(
-                      indicatorColor: Colors.black87,
-                      labelColor: Colors.black87,
-                      unselectedLabelColor: Colors.grey.shade400,
+                      indicatorColor: const Color(0xFFEA580C),
+                      labelColor: const Color(0xFFEA580C),
+                      unselectedLabelColor: Colors.grey.shade500,
+                      labelStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12),
                       tabs: const [
-                        Tab(icon: Icon(Icons.grid_view_rounded)),
-                        Tab(icon: Icon(Icons.lock_outline_rounded)),
+                        Tab(
+                          icon: Icon(Icons.grid_view_rounded, size: 20),
+                          text: 'Publications',
+                        ),
+                        Tab(
+                          icon: Icon(Icons.lock_outline_rounded, size: 20),
+                          text: 'Exclusif',
+                        ),
                       ],
                     ),
                   ],
@@ -559,67 +951,212 @@ class _PosterProfileScreenState extends ConsumerState<PosterProfileScreen> {
           },
           body: TabBarView(
             children: [
-              // Tab 1: Articles grid (placeholder)
-              (int.tryParse(publishedArticles) ?? 0) > 0
-                  ? GridView.builder(
-                      padding: const EdgeInsets.all(2),
-                      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: 3,
-                        crossAxisSpacing: 2,
-                        mainAxisSpacing: 2,
-                        childAspectRatio: 0.75, // Format vertical
-                      ),
-                      itemCount: int.tryParse(publishedArticles) ?? 0,
-                      itemBuilder: (context, index) {
-                        return Container(
-                          color: Colors.grey.shade200,
-                          child: Stack(
-                            fit: StackFit.expand,
+              // Tab 1: vrais articles publiés (remplace l'ancienne grille de
+              // vignettes factices avec des compteurs de vues aléatoires).
+              _loadingArticles
+                  ? const Center(child: CircularProgressIndicator(color: Color(0xFFEA580C)))
+                  : _articles.isNotEmpty
+                      ? GridView.builder(
+                          padding: const EdgeInsets.all(2),
+                          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: 3,
+                            crossAxisSpacing: 2,
+                            mainAxisSpacing: 2,
+                            childAspectRatio: 0.75,
+                          ),
+                          itemCount: _articles.length,
+                          itemBuilder: (context, index) {
+                            final article = _articles[index];
+                            return InkWell(
+                              onTap: () => context.push('/reader/${article.id}'),
+                              child: Stack(
+                                fit: StackFit.expand,
+                                children: [
+                                  article.coverImage.isNotEmpty
+                                      ? CachedNetworkImage(
+                                          imageUrl: article.coverImage,
+                                          fit: BoxFit.cover,
+                                          placeholder: (context, url) =>
+                                              Container(color: Colors.grey.shade200),
+                                          errorWidget: (context, url, error) => Container(
+                                            color: Colors.grey.shade200,
+                                            child: Icon(Icons.article_rounded,
+                                                color: Colors.grey.shade400, size: 32),
+                                          ),
+                                        )
+                                      : Container(
+                                          color: Colors.grey.shade200,
+                                          child: Icon(Icons.article_rounded,
+                                              color: Colors.grey.shade400, size: 32),
+                                        ),
+                                  if (article.isSubscriberExclusive)
+                                    Positioned(
+                                      top: 6,
+                                      right: 6,
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFFEA580C),
+                                          borderRadius: BorderRadius.circular(6),
+                                          boxShadow: const [
+                                            BoxShadow(color: Colors.black26, blurRadius: 4, offset: Offset(0, 2)),
+                                          ],
+                                        ),
+                                        child: const Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Icon(Icons.lock_rounded, size: 10, color: Colors.white),
+                                            SizedBox(width: 2),
+                                            Text(
+                                              'Exclusif',
+                                              style: TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                  Positioned(
+                                    bottom: 0,
+                                    left: 0,
+                                    right: 0,
+                                    child: Container(
+                                      padding: const EdgeInsets.fromLTRB(6, 12, 6, 4),
+                                      decoration: BoxDecoration(
+                                        gradient: LinearGradient(
+                                          begin: Alignment.topCenter,
+                                          end: Alignment.bottomCenter,
+                                          colors: [
+                                            Colors.transparent,
+                                            Colors.black.withAlpha(160),
+                                          ],
+                                        ),
+                                      ),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          const Icon(Icons.visibility_rounded,
+                                              color: Colors.white, size: 14),
+                                          const SizedBox(width: 3),
+                                          Flexible(
+                                            child: Text(
+                                              '${article.viewsCount}',
+                                              overflow: TextOverflow.ellipsis,
+                                              maxLines: 1,
+                                              style: const TextStyle(
+                                                  color: Colors.white,
+                                                  fontSize: 12,
+                                                  fontWeight: FontWeight.bold),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
+                        )
+                      : Center(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
                             children: [
-                              Center(child: Icon(Icons.article_rounded, color: Colors.grey.shade300, size: 40)),
-                              Positioned(
-                                bottom: 4,
-                                left: 4,
-                                child: Row(
-                                  children: [
-                                    const Icon(Icons.play_arrow_outlined, color: Colors.white, size: 16),
-                                    const SizedBox(width: 2),
-                                    Text('${(index * 123) + 42}', style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
-                                  ],
-                                ),
+                              Icon(Icons.article_outlined, size: 48, color: Colors.grey.shade300),
+                              const SizedBox(height: 16),
+                              Text(
+                                'Aucun article publié',
+                                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.grey.shade600),
                               ),
                             ],
                           ),
-                        );
-                      },
-                    )
-                  : Center(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
+                        ),
+              // Tab 2 : contenu réservé aux abonnés — mêmes vignettes que
+              // l'onglet 1, filtrées sur isSubscriberExclusive, avec un
+              // cadenas superposé tant que le lecteur n'est pas abonné à
+              // ce compte (article.isSubscribed, calculé par le backend
+              // via Publication.is_accessible_by).
+              Builder(builder: (context) {
+                final exclusiveArticles =
+                    _articles.where((a) => a.isSubscriberExclusive).toList();
+                if (_loadingArticles) {
+                  return const Center(
+                      child: CircularProgressIndicator(color: Color(0xFFEA580C)));
+                }
+                if (exclusiveArticles.isEmpty) {
+                  return Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.lock_outline, size: 48, color: Colors.grey.shade300),
+                        const SizedBox(height: 16),
+                        Text(
+                          "Aucun contenu exclusif pour l'instant",
+                          style: TextStyle(
+                              fontSize: 16, fontWeight: FontWeight.bold, color: Colors.grey.shade600),
+                        ),
+                      ],
+                    ),
+                  );
+                }
+                return GridView.builder(
+                  padding: const EdgeInsets.all(2),
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 3,
+                    crossAxisSpacing: 2,
+                    mainAxisSpacing: 2,
+                    childAspectRatio: 0.75,
+                  ),
+                  itemCount: exclusiveArticles.length,
+                  itemBuilder: (context, index) {
+                    final article = exclusiveArticles[index];
+                    final locked = !article.isSubscribed;
+                    return InkWell(
+                      onTap: () => context.push('/reader/${article.id}'),
+                      child: Stack(
+                        fit: StackFit.expand,
                         children: [
-                          Icon(Icons.article_outlined, size: 48, color: Colors.grey.shade300),
-                          const SizedBox(height: 16),
-                          Text(
-                            'Aucun article publié',
-                            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.grey.shade600),
+                          article.coverImage.isNotEmpty
+                              ? CachedNetworkImage(
+                                  imageUrl: article.coverImage,
+                                  fit: BoxFit.cover,
+                                  placeholder: (context, url) =>
+                                      Container(color: Colors.grey.shade200),
+                                  errorWidget: (context, url, error) => Container(
+                                    color: Colors.grey.shade200,
+                                    child: Icon(Icons.article_rounded,
+                                        color: Colors.grey.shade400, size: 32),
+                                  ),
+                                )
+                              : Container(
+                                  color: Colors.grey.shade200,
+                                  child: Icon(Icons.article_rounded,
+                                      color: Colors.grey.shade400, size: 32),
+                                ),
+                          if (locked)
+                            Container(
+                              color: Colors.black.withAlpha(140),
+                              child: const Center(
+                                child: Icon(Icons.lock_rounded, color: Colors.white, size: 28),
+                              ),
+                            ),
+                          Positioned(
+                            bottom: 4,
+                            left: 4,
+                            right: 4,
+                            child: Text(
+                              article.title,
+                              overflow: TextOverflow.ellipsis,
+                              maxLines: 1,
+                              style: const TextStyle(
+                                  color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                            ),
                           ),
                         ],
                       ),
-                    ),
-              // Tab 2: Private (placeholder)
-              Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.lock_outline, size: 48, color: Colors.grey.shade300),
-                    const SizedBox(height: 16),
-                    Text(
-                      'Contenu privé',
-                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.grey.shade600),
-                    ),
-                  ],
-                ),
-              ),
+                    );
+                  },
+                );
+              }),
             ],
           ),
         ),
@@ -629,14 +1166,19 @@ class _PosterProfileScreenState extends ConsumerState<PosterProfileScreen> {
 
   Widget _buildStatColumn(String count, String label) {
     return Column(
+      mainAxisSize: MainAxisSize.min,
       children: [
         Text(
           count,
+          overflow: TextOverflow.ellipsis,
+          maxLines: 1,
           style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black87),
         ),
         const SizedBox(height: 2),
         Text(
           label,
+          overflow: TextOverflow.ellipsis,
+          maxLines: 1,
           style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
         ),
       ],
@@ -647,7 +1189,10 @@ class _PosterProfileScreenState extends ConsumerState<PosterProfileScreen> {
     return Container(
       height: 16,
       width: 1,
-      margin: const EdgeInsets.symmetric(horizontal: 24),
+      // 24px de marge de chaque côté (48px total x2 diviseurs) dépassait
+      // la largeur de l'écran sur téléphone étroit avec 3 colonnes de
+      // stats — d'où le débordement horizontal signalé sur cet écran.
+      margin: const EdgeInsets.symmetric(horizontal: 10),
       color: Colors.grey.shade300,
     );
   }
@@ -655,24 +1200,142 @@ class _PosterProfileScreenState extends ConsumerState<PosterProfileScreen> {
   Widget _buildButton({required String text, required Color color, required Color textColor, required VoidCallback onTap}) {
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(8),
+      borderRadius: BorderRadius.circular(12),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
         decoration: BoxDecoration(
           color: color,
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            if (color != Colors.grey.shade100)
+              BoxShadow(
+                color: color.withValues(alpha: 0.35),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              ),
+          ],
         ),
         child: Text(
           text,
-          style: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 14),
+          style: TextStyle(color: textColor, fontWeight: FontWeight.w800, fontSize: 14),
         ),
       ),
     );
   }
 
-  Widget _buildIconButton(IconData icon) {
+  Future<void> _launchWebsite(String website) async {
+    var url = website.trim();
+    if (!url.startsWith('http://') && !url.startsWith('https://')) {
+      url = 'https://$url';
+    }
+    final uri = Uri.tryParse(url);
+    if (uri == null) return;
+    try {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Impossible d'ouvrir ce lien.")),
+      );
+    }
+  }
+
+  /// Le bouton "S'abonner" ne faisait rien avant ce correctif (juste un
+  /// SnackBar "Fonctionnalité à venir"). Flux complet maintenant : liste
+  /// des plans de CET éditeur -> choix -> création de l'abonnement
+  /// (status='pending') -> paiement via la feuille de paiement déjà
+  /// utilisée partout ailleurs dans l'app.
+  Future<void> _openSubscribeSheet() async {
+    final publisherId = widget.publisherId;
+    if (publisherId == null) return;
+
+    List<AbonnementPlan> plans;
+    try {
+      plans = await ref.read(abonnementServiceProvider).getPlansForPublisher(publisherId);
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Impossible de charger les offres d'abonnement.")),
+      );
+      return;
+    }
+
+    if (!mounted) return;
+    if (plans.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Cet éditeur ne propose pas d'abonnement pour le moment.")),
+      );
+      return;
+    }
+
+    final chosen = await showModalBottomSheet<AbonnementPlan>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                "Choisissez une offre",
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 16),
+              ...plans.map((plan) => Card(
+                    margin: const EdgeInsets.only(bottom: 10),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                      side: BorderSide(color: Colors.grey.shade200),
+                    ),
+                    elevation: 0,
+                    child: ListTile(
+                      title: Text(plan.name, style: const TextStyle(fontWeight: FontWeight.w700)),
+                      subtitle: Text('${plan.prix.toStringAsFixed(0)} F / ${plan.periodLabel}'),
+                      trailing: const Icon(Icons.chevron_right_rounded),
+                      onTap: () => Navigator.of(context).pop(plan),
+                    ),
+                  )),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    if (chosen == null || !mounted) return;
+
+    try {
+      final abonnement = await ref.read(abonnementServiceProvider).createAbonnement(chosen.id);
+      if (!mounted) return;
+      await showModalBottomSheet(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.transparent,
+        builder: (context) => PaymentSelectionSheet(
+          journalId: 'plan-${chosen.id}',
+          journalTitle: "Abonnement — ${chosen.name}",
+          price: chosen.prix,
+          isSubscription: true,
+          abonnementId: abonnement.id,
+        ),
+      );
+      if (mounted) await _load();
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Impossible de créer l'abonnement.")),
+      );
+    }
+  }
+
+  Widget _buildIconButton(IconData icon, {VoidCallback? onTap}) {
     return InkWell(
-      onTap: () {},
+      onTap: onTap ?? () {},
       borderRadius: BorderRadius.circular(8),
       child: Container(
         padding: const EdgeInsets.all(8),

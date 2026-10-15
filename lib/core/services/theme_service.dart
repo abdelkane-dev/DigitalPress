@@ -16,8 +16,20 @@ class ThemeNotifier extends StateNotifier<bool> {
   }
 
   Future<void> _load() async {
-    final isDark = _storage.get('is_dark_mode', defaultValue: false) as bool;
-    state = isDark;
+    // ─── CORRECTIF « l'app ne s'ouvre plus » ────────────────────────────
+    // Si la boîte Hive n'a pas pu être ouverte (clé de chiffrement perdue),
+    // _storage.get() levait une LateInitializationError NON attrapée depuis
+    // un callback async → l'app mourait silencieusement au démarrage en
+    // release et Android la marquait « stopped » (tap sur l'icône sans
+    // effet). On ne laisse plus jamais une erreur async non gérée ici.
+    try {
+      final isDark = _storage.get('is_dark_mode', defaultValue: false) as bool;
+      state = isDark;
+    } catch (_) {
+      // Valeur par défaut : thème clair. Le démarrage ne doit jamais
+      // dépendre de la réussite d'une lecture de préférence.
+      state = false;
+    }
   }
 
   Future<void> toggle() async {

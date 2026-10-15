@@ -10,9 +10,6 @@ import dj_database_url
 BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / '.env')
 
-# Détection automatique de l'environnement Render
-IS_RENDER = os.getenv('RENDER', 'False') == 'True'
-
 DEBUG = os.getenv('DEBUG', 'True') == 'True'
 
 SECRET_KEY = os.getenv('SECRET_KEY', 'change-me-in-production-please')
@@ -22,16 +19,13 @@ if not DEBUG and SECRET_KEY == 'change-me-in-production-please':
         'Définissez une variable d\'environnement SECRET_KEY forte et unique avant le déploiement.'
     )
 
-_base_hosts = ['*'] if DEBUG else os.getenv('ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
-# Ajoute automatiquement le hostname public Render (ex: digitalpress-api.onrender.com)
-_render_host = os.getenv('RENDER_EXTERNAL_HOSTNAME', '')
-ALLOWED_HOSTS = list(set(_base_hosts + ([_render_host] if _render_host else [])))
+ALLOWED_HOSTS = ['*'] if DEBUG else os.getenv('ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
 
 # ─── SÉCURITÉ PRODUCTION ─────────────────────────────────────────────────────
-# Activé uniquement quand DEBUG=False, pour ne jamais gêner le développement local.
+# Activé uniquement quand DEBUG=False. Nginx gère le SSL en amont sur le VPS.
 if not DEBUG:
-    # Render gère le SSL en amont (proxy) — ne pas rediriger ici sinon boucle infinie
-    SECURE_SSL_REDIRECT = False if IS_RENDER else (os.getenv('SECURE_SSL_REDIRECT', 'True') == 'True')
+    # Nginx termine le SSL — Django ne doit pas rediriger lui-même (boucle infinie)
+    SECURE_SSL_REDIRECT = os.getenv('SECURE_SSL_REDIRECT', 'False') == 'True'
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
     SECURE_HSTS_SECONDS = int(os.getenv('SECURE_HSTS_SECONDS', '31536000'))
@@ -41,15 +35,12 @@ if not DEBUG:
     SECURE_BROWSER_XSS_FILTER = True
     X_FRAME_OPTIONS = 'DENY'
     SECURE_REFERRER_POLICY = 'same-origin'
-    # Permet de tourner correctement derrière un proxy/LB (Nginx, Render, etc.)
+    # Permet de tourner correctement derrière Nginx (proxy inverse VPS)
     SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
 CSRF_TRUSTED_ORIGINS = [
     origin.strip() for origin in os.getenv('CSRF_TRUSTED_ORIGINS', '').split(',') if origin.strip()
 ]
-
-# ─── MODE BASE DE DONNÉES ──────────────────────────────────────────────────────
-USE_SQLITE = os.getenv('USE_SQLITE', 'True') == 'True'
 
 # ─── APPLICATIONS ────────────────────────────────────────────────────────────
 DJANGO_APPS = [
@@ -61,20 +52,20 @@ DJANGO_APPS = [
     'django.contrib.staticfiles',
 ]
 
+import importlib.util
+
 THIRD_PARTY_APPS = [
     'rest_framework',
     'rest_framework_simplejwt',
     'rest_framework_simplejwt.token_blacklist',
     'corsheaders',
     'django_filters',
+    'channels',
 ]
 
-if not USE_SQLITE:
-    THIRD_PARTY_APPS += [
-        'drf_yasg',
-        'django_celery_beat',
-        'django_celery_results',
-    ]
+for app in ['drf_yasg', 'django_celery_beat', 'django_celery_results']:
+    if importlib.util.find_spec(app.split('.')[0]) is not None:
+        THIRD_PARTY_APPS.append(app)
 
 LOCAL_APPS = [
     'apps.accounts',
@@ -92,7 +83,7 @@ INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
-    # WhiteNoise : sert les fichiers statiques sans Nginx (requis sur Render)
+    # WhiteNoise : sert les fichiers statiques compressés (fallback si Nginx ne gère pas /static/)
     'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -125,39 +116,31 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'config.wsgi.application'
 
-# ─── DATABASE ────────────────────────────────────────────────────────────────
-if USE_SQLITE:
+# ─── DATABASE (PostgreSQL) ───────────────────────────────────────────────────
+# DATABASE_URL (format postgres://user:pass@host:port/db) — priorité si défini
+_database_url = os.getenv('DATABASE_URL', '')
+if _database_url:
     DATABASES = {
-        'default': {
-            'ENGINE': 'django.db.backends.sqlite3',
-            'NAME': BASE_DIR / 'db.sqlite3',
-        }
+        'default': dj_database_url.parse(
+            _database_url,
+            conn_max_age=600,
+            conn_health_checks=True,
+        )
     }
 else:
-    # Sur Render, DATABASE_URL est injecté automatiquement — priorité absolue
-    _database_url = os.getenv('DATABASE_URL', '')
-    if _database_url:
-        DATABASES = {
-            'default': dj_database_url.parse(
-                _database_url,
-                conn_max_age=600,
-                conn_health_checks=True,
-            )
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.postgresql',
+            'NAME': os.getenv('DATABASE_NAME', 'digitalpress'),
+            'USER': os.getenv('DATABASE_USER', 'dp_user'),
+            'PASSWORD': os.getenv('DATABASE_PASSWORD', 'dp_pass'),
+            'HOST': os.getenv('DATABASE_HOST', 'localhost'),
+            'PORT': os.getenv('DATABASE_PORT', '5432'),
+            'OPTIONS': {
+                'connect_timeout': 10,
+            },
         }
-    else:
-        DATABASES = {
-            'default': {
-                'ENGINE': 'django.db.backends.postgresql',
-                'NAME': os.getenv('DATABASE_NAME', 'digitalpress'),
-                'USER': os.getenv('DATABASE_USER', 'dp_user'),
-                'PASSWORD': os.getenv('DATABASE_PASSWORD', 'dp_pass'),
-                'HOST': os.getenv('DATABASE_HOST', 'localhost'),
-                'PORT': os.getenv('DATABASE_PORT', '5432'),
-                'OPTIONS': {
-                    'connect_timeout': 10,
-                },
-            }
-        }
+    }
 
 # ─── CACHE / REDIS ───────────────────────────────────────────────────────────
 # Cache mémoire locale (évite les erreurs d'incompatibilité avec Redis)
@@ -168,19 +151,42 @@ CACHES = {
     }
 }
 
-# ─── CELERY (production PostgreSQL) ───────────────────────────────────────────
-if not USE_SQLITE:
-    REDIS_URL = os.getenv('REDIS_URL', 'redis://redis:6379/1')
-    CELERY_BROKER_URL = os.getenv('CELERY_BROKER_URL', REDIS_URL)
-    CELERY_RESULT_BACKEND = os.getenv('CELERY_RESULT_BACKEND', REDIS_URL)
-    CELERY_ACCEPT_CONTENT = ['json']
-    CELERY_TASK_SERIALIZER = 'json'
-    CELERY_RESULT_SERIALIZER = 'json'
-    CELERY_TIMEZONE = 'Africa/Abidjan'
-    CELERY_TASK_TRACK_STARTED = True
-    CELERY_TASK_TIME_LIMIT = 30 * 60
-    CELERY_BEAT_SCHEDULER = 'django_celery_beat.schedulers:DatabaseScheduler'
+# ─── WEBSOCKETS / TEMPS RÉEL (Django Channels) ────────────────────────────────
+ASGI_APPLICATION = 'config.asgi.application'
 
+_ws_redis_url = os.getenv('REDIS_URL', 'redis://127.0.0.1:6379/1')
+try:
+    import redis
+    r = redis.Redis.from_url(_ws_redis_url, socket_timeout=1)
+    r.ping()
+    CHANNEL_LAYERS = {
+        'default': {
+            'BACKEND': 'channels_redis.core.RedisChannelLayer',
+            'CONFIG': {
+                'hosts': [_ws_redis_url],
+            },
+        }
+    }
+except Exception:
+    CHANNEL_LAYERS = {
+        'default': {
+            'BACKEND': 'channels.layers.InMemoryChannelLayer',
+        }
+    }
+
+# ─── CELERY (PostgreSQL & Redis) ─────────────────────────────────────────────
+REDIS_URL = os.getenv('REDIS_URL', 'redis://redis:6379/1')
+CELERY_BROKER_URL = os.getenv('CELERY_BROKER_URL', REDIS_URL)
+CELERY_RESULT_BACKEND = os.getenv('CELERY_RESULT_BACKEND', REDIS_URL)
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_RESULT_SERIALIZER = 'json'
+CELERY_TIMEZONE = 'Africa/Abidjan'
+CELERY_TASK_TRACK_STARTED = True
+CELERY_TASK_TIME_LIMIT = 30 * 60
+CELERY_BEAT_SCHEDULER = 'django_celery_beat.schedulers:DatabaseScheduler'
+
+try:
     from celery.schedules import crontab
     CELERY_BEAT_SCHEDULE = {
         'verifier-paiements-pending': {
@@ -197,6 +203,11 @@ if not USE_SQLITE:
             'task': 'apps.comptabilite.tasks.notifier_expiration_proche',
             'schedule': crontab(hour='0', minute='30'),
         },
+        # Expiration des mises en avant payantes « À la une » (00:15 chaque nuit)
+        'expirer-mises-en-avant': {
+            'task': 'apps.publications.tasks.expirer_mises_en_avant',
+            'schedule': crontab(hour='0', minute='15'),
+        },
         # Paiements automatiques aux éditeurs chaque nuit à 01:00
         'traiter-payouts-presse': {
             'task': 'apps.comptabilite.tasks.traiter_payouts_presse_automatique',
@@ -211,9 +222,38 @@ if not USE_SQLITE:
             'schedule': crontab(hour='1', minute='0', day_of_month='1'),
         },
     }
+except ImportError:
+    CELERY_BEAT_SCHEDULE = {}
 
 
 # ─── REST FRAMEWORK ──────────────────────────────────────────────────────────
+# ─── VALIDATION DES MOTS DE PASSE ───────────────────────────────────────
+# Exigences de robustesse appliquées à TOUS les endpoints qui créent ou
+# modifient un mot de passe (inscription, reset, changement). Empêche
+# les mots de passe faibles (123456, etc.) — conformité OWASP.
+AUTH_PASSWORD_VALIDATORS = [
+    {
+        'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
+    },
+    {
+        'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
+        'OPTIONS': {'min_length': 8},
+    },
+    {
+        'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
+    },
+    {
+        'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
+    },
+]
+
+# ─── FIREBASE CLOUD MESSAGING (push notifications hors-app) ────────────────
+# FIREBASE_PROJECT_ID : ID du projet Firebase (utilisé pour l'URL FCM v1).
+# Le JSON du compte de service est lu depuis FIREBASE_SERVICE_ACCOUNT_JSON
+# (contenu JSON brut en env var) ou FIREBASE_SERVICE_ACCOUNT_JSON_PATH
+# (chemin vers le fichier), cf. notifications/views.py._get_fcm_access_token().
+FIREBASE_PROJECT_ID = os.getenv('FIREBASE_PROJECT_ID', 'digitalpress-ec022')
+
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
         'rest_framework_simplejwt.authentication.JWTAuthentication',
@@ -242,6 +282,10 @@ REST_FRAMEWORK = {
         'anon': '60/minute',
         'user': '300/minute',
         'auth': '10/minute',
+        # Rate limit sur les uploads média : 10 fichiers/minute par
+        # utilisateur authentifié — empêche le flood (DoS par remplissage
+        # disque) tout en laissant un éditeur publier confortablement.
+        'upload': '10/minute',
     },
     'EXCEPTION_HANDLER': 'core.exceptions.custom_exception_handler',
 }
@@ -270,7 +314,7 @@ def _parse_cors_origins():
     ]
 
 
-# En dev Docker (DEBUG=True) : toutes origines autorisées pour Flutter/Web
+# En dev (DEBUG=True) : toutes origines autorisées pour Flutter/Web
 CORS_ALLOW_ALL_ORIGINS = DEBUG or os.getenv('CORS_ALLOW_ALL', 'False') == 'True'
 CORS_ALLOWED_ORIGINS = [] if CORS_ALLOW_ALL_ORIGINS else _parse_cors_origins()
 CORS_ALLOW_CREDENTIALS = True
@@ -305,13 +349,21 @@ REDOC_SETTINGS = {
 # ─── STATIC / MEDIA ──────────────────────────────────────────────────────────
 STATIC_URL = '/static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
-# WhiteNoise : compression + cache busting automatique en production
-STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
-# Les fichiers média sont stockés dans le dossier media/ local (éphémère sur Render gratuit)
+# Les fichiers média sont stockés dans le dossier media/ local
 MEDIA_ROOT = BASE_DIR / 'media'
-
 MEDIA_URL = '/media/'
+
+# ─── STORAGES (Django 5.x) ─────────────────────────────────────────────────
+# Remplace STATICFILES_STORAGE / DEFAULT_FILE_STORAGE dépréciés en 5.x.
+STORAGES = {
+    'default': {
+        'BACKEND': 'django.core.files.storage.FileSystemStorage',
+    },
+    'staticfiles': {
+        'BACKEND': 'whitenoise.storage.CompressedManifestStaticFilesStorage',
+    },
+}
 
 # ─── INTERNATIONALISATION ────────────────────────────────────────────────────
 LANGUAGE_CODE = 'fr-fr'
@@ -319,25 +371,45 @@ TIME_ZONE = 'Africa/Abidjan'
 USE_I18N = True
 USE_TZ = True
 
-# ─── MOVAPAY ─────────────────────────────────────────────────────────────────
-MOVAPAY_API_KEY = os.getenv('MOVAPAY_API_KEY', '')
-MOVAPAY_SECRET = os.getenv('MOVAPAY_SECRET', '')
-MOVAPAY_BASE_URL = os.getenv('MOVAPAY_BASE_URL', 'https://api.movapay.com/v1')
+# ─── CINETPAY ───────────────────────────────────────────────────────────────
+# Passerelle de paiement unifiée (mobile money + cartes, 40+ moyens,
+# Afrique de l'Ouest et centrale) pour TOUS les rôles (lecteur, éditeur,
+# admin). Les endpoints sont identiques en test et en production : il suffit
+# de renseigner ces trois valeurs dans le .env pour basculer du mode
+# simulation local vers la vraie passerelle (les identifiants de TEST de
+# CinetPay acceptent de vraies cartes de tous les pays supportés).
+CINETPAY_API_KEY = os.getenv('CINETPAY_API_KEY', '')
+CINETPAY_SITE_ID = os.getenv('CINETPAY_SITE_ID', '')
+CINETPAY_SECRET = os.getenv('CINETPAY_SECRET', '')
+CINETPAY_BASE_URL = os.getenv('CINETPAY_BASE_URL', 'https://api-checkout.cinetpay.com/v2')
+
+# ─── BREVO (EMAIL SMTP & SMS REST API) ───────────────────────────────────────
+SMS_PROVIDER = os.getenv('SMS_PROVIDER', 'brevo')
+TWILIO_DEFAULT_COUNTRY_CODE = os.getenv('TWILIO_DEFAULT_COUNTRY_CODE', '223')
+BREVO_API_KEY = os.getenv('BREVO_API_KEY', '')
+BREVO_SMS_SENDER = os.getenv('BREVO_SMS_SENDER', 'DigitalPress')
 
 # ─── EMAIL (codes de vérification, réinitialisation de mot de passe) ────────
-# En dev : les emails s'affichent dans la console. En prod, configurez un SMTP
-# réel (SendGrid, Mailgun, SES...) via les variables d'environnement.
 EMAIL_BACKEND = os.getenv(
     'EMAIL_BACKEND',
-    'django.core.mail.backends.console.EmailBackend' if DEBUG
-    else 'django.core.mail.backends.smtp.EmailBackend',
+    'django.core.mail.backends.smtp.EmailBackend',
 )
-EMAIL_HOST = os.getenv('EMAIL_HOST', 'localhost')
+EMAIL_HOST = os.getenv('EMAIL_HOST', 'smtp-relay.brevo.com')
 EMAIL_PORT = int(os.getenv('EMAIL_PORT', '587'))
-EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER', '')
-EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD', '')
+EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER', '')  # Login Brevo SMTP
+EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD', '')  # Clé SMTP Brevo
 EMAIL_USE_TLS = os.getenv('EMAIL_USE_TLS', 'True') == 'True'
-DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', 'no-reply@digitalpress.local')
+DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', 'support@digitalpress-ml.com')
+
+# ─── CONNEXION GOOGLE / FACEBOOK (voir accounts.GoogleAuthView/FacebookAuthView) ─
+# GOOGLE_OAUTH_CLIENT_ID : le "Client ID Web" créé dans Google Cloud
+# Console pour ce projet Firebase (Identifiants > Créer des identifiants >
+# ID client OAuth > Application Web). PAS le client ID Android/iOS.
+GOOGLE_OAUTH_CLIENT_ID = os.getenv('GOOGLE_OAUTH_CLIENT_ID', '')
+# FACEBOOK_APP_ID / FACEBOOK_APP_SECRET : depuis developers.facebook.com,
+# dans les réglages de base de votre application Facebook.
+FACEBOOK_APP_ID = os.getenv('FACEBOOK_APP_ID', '')
+FACEBOOK_APP_SECRET = os.getenv('FACEBOOK_APP_SECRET', '')
 
 # ─── MISC ────────────────────────────────────────────────────────────────────
 BACKEND_URL = os.getenv('BACKEND_URL', 'http://localhost:8000')
@@ -346,11 +418,6 @@ FRONTEND_SUCCESS_URL = os.getenv('FRONTEND_SUCCESS_URL', 'http://localhost:3000/
 # Créer le dossier logs/ s'il n'existe pas (évite FileNotFoundError au démarrage)
 _logs_dir = BASE_DIR / 'logs'
 _logs_dir.mkdir(exist_ok=True)
-
-# Sur Render (et en général en production cloud), on écrit uniquement sur stdout/stderr.
-# Render capture ces flux directement. L'écriture sur fichier est désactivée
-# pour éviter les erreurs "No such file or directory" sur les filesystems éphémères.
-_use_file_logging = not IS_RENDER and not USE_SQLITE
 
 LOGGING = {
     'version': 1,
@@ -372,14 +439,14 @@ LOGGING = {
     'root': {'handlers': ['console'], 'level': 'INFO'},
     'loggers': {
         'django': {
-            'handlers': ['console', 'file'] if _use_file_logging else ['console'],
+            'handlers': ['console', 'file'],
             'level': 'WARNING',
             'propagate': False,
         },
         'apps': {
-            'handlers': ['console', 'file'] if _use_file_logging else ['console'],
+            'handlers': ['console', 'file'],
             'level': 'DEBUG',
             'propagate': False,
         },
     },
-}
+}

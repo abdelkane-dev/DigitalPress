@@ -8,7 +8,7 @@ final securityServiceProvider = Provider<SecurityService>((ref) {
 });
 
 class SecurityService {
-  static const platform = MethodChannel('com.example.digitalpress/security');
+  static const platform = MethodChannel('com.digitalpress.app/security');
 
   /// Active ou désactive la protection contre les captures d'écran (DRM).
   ///

@@ -280,7 +280,7 @@ class _ManagePlansScreenState extends ConsumerState<ManagePlansScreen> {
     final descController = TextEditingController(text: plan?.description ?? '');
     final prixController = TextEditingController(text: plan != null ? plan.prix.toStringAsFixed(0) : '');
     final featuresController = TextEditingController(text: plan?.features ?? '');
-    String selectedPeriod = plan?.period ?? 'monthly';
+    String selectedPeriod = plan?.period ?? 'monthly';  // ignore: deprecated_member_use
     bool isActive = plan?.isActive ?? true;
 
     showDialog(
@@ -311,17 +311,19 @@ class _ManagePlansScreenState extends ConsumerState<ManagePlansScreen> {
                       validator: (v) => v == null || v.isEmpty ? 'Requis' : null,
                     ),
                     const SizedBox(height: 12),
-                    DropdownButtonFormField<String>(
-                      initialValue: selectedPeriod,
+                                        DropdownButtonFormField<String>(
+                      value: selectedPeriod,  // ignore: deprecated_member_use
                       decoration: const InputDecoration(labelText: 'Fréquence de facturation'),
                       items: const [
+                        DropdownMenuItem(value: 'weekly', child: Text('Hebdomadaire')),
                         DropdownMenuItem(value: 'monthly', child: Text('Mensuel')),
                         DropdownMenuItem(value: 'quarterly', child: Text('Trimestriel')),
+                        DropdownMenuItem(value: 'semester', child: Text('Semestriel')),
                         DropdownMenuItem(value: 'yearly', child: Text('Annuel')),
                       ],
                       onChanged: (val) {
                         if (val != null) {
-                          setDialogState(() => selectedPeriod = val);
+                          setDialogState(() => selectedPeriod = val);  // ignore: deprecated_member_use
                         }
                       },
                     ),
@@ -362,7 +364,7 @@ class _ManagePlansScreenState extends ConsumerState<ManagePlansScreen> {
                     final data = {
                       'name': nameController.text.trim(),
                       'prix': double.parse(prixController.text.trim()),
-                      'period': selectedPeriod,
+                      'period': selectedPeriod,  // ignore: deprecated_member_use
                       'description': descController.text.trim(),
                       'features': featuresController.text.trim(),
                       'is_active': isActive,

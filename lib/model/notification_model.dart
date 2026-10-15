@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+
+
 enum NotificationType { payment, newJournal, promotion, reminder, system }
 
 class NotificationModel {

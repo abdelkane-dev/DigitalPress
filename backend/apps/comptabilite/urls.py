@@ -4,10 +4,10 @@ from .views import (
     AdminJournalComptableView, AdminJournalDetailView,
     AdminReconciliationView, AdminReconciliationDetailView,
     AdminExportJournalView, AdminExportTransactionsView,
-    AdminSoldesEditeursView,
+    AdminSoldesEditeursView, AdminRemboursementsView,
     EditeurJournalView, EditeurSoldeView,
     EditeurHistoriqueTransactionsView, EditeurExportView,
-    EditeurStatsVentesView,
+    EditeurStatsVentesView, EditeurRemboursementsView,
 )
 
 urlpatterns = [
@@ -28,13 +28,15 @@ urlpatterns = [
     path('admin/comptabilite/export/', AdminExportJournalView.as_view(), name='admin_export_journal'),
     path('admin/comptabilite/export/transactions/', AdminExportTransactionsView.as_view(), name='admin_export_transactions'),
 
-    # ── Admin soldes éditeurs ──────────────────────────────────
+    # ── Admin soldes éditeurs + remboursements ─────────────────
     path('admin/editeurs/soldes/', AdminSoldesEditeursView.as_view(), name='admin_soldes_editeurs'),
+    path('admin/comptabilite/remboursements/', AdminRemboursementsView.as_view(), name='admin_remboursements'),
 
     # ── Éditeur ────────────────────────────────────────────────
     path('entreprise/comptabilite/journal/', EditeurJournalView.as_view(), name='editeur_journal'),
     path('entreprise/comptabilite/solde/', EditeurSoldeView.as_view(), name='editeur_solde'),
     path('entreprise/comptabilite/export/', EditeurExportView.as_view(), name='editeur_export'),
     path('entreprise/comptabilite/stats/', EditeurStatsVentesView.as_view(), name='editeur_stats'),
+    path('entreprise/comptabilite/remboursements/', EditeurRemboursementsView.as_view(), name='editeur_remboursements'),
     path('entreprise/transactions/', EditeurHistoriqueTransactionsView.as_view(), name='editeur_transactions'),
 ]

@@ -61,6 +61,34 @@ class AbonnementService {
     }
   }
 
+  /// Retire un abonné : annule ses abonnements chez l'éditeur connecté.
+  Future<Map<String, dynamic>> cancelSubscriber(int readerId) async {
+    final response =
+        await _apiClient.post('abonnements/publisher/$readerId/cancel/');
+    return Map<String, dynamic>.from(response.data);
+  }
+
+  /// Bannit un abonné : annule ses abonnements ET désactive son compte.
+  Future<Map<String, dynamic>> banSubscriber(int readerId) async {
+    final response =
+        await _apiClient.post('abonnements/publisher/$readerId/ban/');
+    return Map<String, dynamic>.from(response.data);
+  }
+
+  /// Récupère la liste des lecteurs abonnés à l'éditeur connecté.
+  Future<List<Abonnement>> getPublisherSubscribers() async {
+    try {
+      final response = await _apiClient.get('abonnements/publisher/');
+      final List<dynamic> data = response.data is Map
+          ? (response.data['results'] as List? ?? [])
+          : (response.data as List? ?? []);
+      return data.map((json) => Abonnement.fromJson(json)).toList();
+    } catch (e) {
+      _logger.e('Erreur lors de la récupération des abonnés : $e');
+      rethrow;
+    }
+  }
+
   /// Récupère les plans créés par l'éditeur connecté.
   Future<List<AbonnementPlan>> getPublisherPlans() async {
     try {

@@ -66,6 +66,16 @@ class PosterStatisticsScreen extends ConsumerWidget {
                 ),
                 const SizedBox(height: 20),
                 const Text(
+                  'Historique des vues',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                const _ViewsHistoryCard(),
+                const SizedBox(height: 20),
+                const Text(
                   'Performance par article',
                   style: TextStyle(
                     fontSize: 18,
@@ -136,6 +146,182 @@ class PosterStatisticsScreen extends ConsumerWidget {
   }
 }
 
+/// Carte « Historique des vues » : graphique en barres des vues des
+/// derniers jours (données du backend, PublicationView) + classement par
+/// publication. Rechargée automatiquement via viewsHistoryProvider.
+class _ViewsHistoryCard extends ConsumerWidget {
+  const _ViewsHistoryCard();
+
+  String _shortLabel(String isoDate) {
+    final d = DateTime.tryParse(isoDate);
+    if (d == null) return isoDate;
+    return '${d.day}/${d.month}';
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final async = ref.watch(viewsHistoryProvider);
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: const [
+          BoxShadow(
+            blurRadius: 8,
+            color: Colors.black12,
+            offset: Offset(0, 3),
+          ),
+        ],
+      ),
+      child: async.when(
+        loading: () => const SizedBox(
+          height: 120,
+          child: Center(child: CircularProgressIndicator()),
+        ),
+        error: (err, _) => Padding(
+          padding: const EdgeInsets.symmetric(vertical: 20),
+          child: Column(
+            children: [
+              Icon(Icons.bar_chart_rounded,
+                  color: Colors.grey.shade400, size: 40),
+              const SizedBox(height: 8),
+              Text(
+                'Pas encore de données de vues par jour.\nElles apparaîtront dès que vos articles seront lus.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
+              ),
+            ],
+          ),
+        ),
+        data: (data) {
+          final series = (data['series'] as List? ?? [])
+              .whereType<Map<String, dynamic>>()
+              .toList();
+          if (series.isEmpty) {
+            return Padding(
+              padding: const EdgeInsets.symmetric(vertical: 20),
+              child: Text(
+                'Pas encore de données de vues par jour.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
+              ),
+            );
+          }
+          final maxCount = series.fold<int>(
+              1, (m, e) => (e['count'] as num? ?? 0) > m ? (e['count'] as num).toInt() : m);
+
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // ── Graphique en barres (14 derniers jours) ────────────────
+              SizedBox(
+                height: 140,
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    for (final day in series)
+                      Expanded(
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 2),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.end,
+                            children: [
+                              Text(
+                                '${day['count']}',
+                                style: TextStyle(
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.w700,
+                                  color: (day['count'] as num? ?? 0) > 0
+                                      ? Colors.blue.shade700
+                                      : Colors.grey.shade400,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Container(
+                                height: (day['count'] as num? ?? 0) == 0
+                                    ? 3
+                                    : 80 *
+                                        ((day['count'] as num).toDouble() /
+                                            maxCount),
+                                decoration: BoxDecoration(
+                                  color: (day['count'] as num? ?? 0) > 0
+                                      ? Colors.blue.shade600
+                                      : Colors.grey.shade300,
+                                  borderRadius: const BorderRadius.vertical(
+                                    top: Radius.circular(4),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                _shortLabel(day['date']?.toString() ?? ''),
+                                style: TextStyle(
+                                  fontSize: 8,
+                                  color: Colors.grey.shade600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+              // ── Classement des publications ────────────────────────────
+              const Text(
+                'Par publication',
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 8),
+              ...((data['per_publication'] as List? ?? [])
+                  .whereType<Map<String, dynamic>>()
+                  .take(5)
+                  .map((p) {
+                final total = (p['series'] as List? ?? []).fold<int>(
+                    0,
+                    (sum, e) =>
+                        sum +
+                        ((e is Map && e['count'] is num)
+                            ? (e['count'] as num).toInt()
+                            : 0));
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 6),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          p['title']?.toString() ?? '',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey.shade800,
+                          ),
+                        ),
+                      ),
+                      Text(
+                        '$total vues',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.blue.shade700,
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              })),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
 class _StatCard extends StatelessWidget {
   final String title;
   final String value;
@@ -169,6 +355,8 @@ class _StatCard extends StatelessWidget {
           const SizedBox(height: 8),
           Text(
             value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
             style: const TextStyle(
               fontSize: 20,
               fontWeight: FontWeight.bold,

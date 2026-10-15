@@ -3,6 +3,8 @@ import 'package:url_launcher/url_launcher.dart';
 import '../api/api_client.dart';
 import 'package:logger/logger.dart';
 
+
+
 /// Les différents types de paiement supportés.
 enum PaymentMethodType {
   wallet, // Portefeuille interne
@@ -11,7 +13,6 @@ enum PaymentMethodType {
   moovMoney,
   samaMoney,
   stripe, // Carte bancaire
-  simulation, // Mode test
 }
 
 /// Modèle pour une session de paiement initiée par le backend.
@@ -45,7 +46,9 @@ final paymentServiceProvider = Provider<PaymentService>((ref) {
   return PaymentService(apiClient);
 });
 
-/// Service gérant les transactions financières via Stripe et Mobile Money (Mali).
+/// Service gérant les transactions financières via CinetPay (mobile money +
+/// cartes bancaires, 40+ moyens de paiement) et le portefeuille interne —
+/// pour tous les rôles (lecteur, éditeur, admin).
 class PaymentService {
   final ApiClient _apiClient;
   final _logger = Logger();
@@ -53,6 +56,8 @@ class PaymentService {
   PaymentService(this._apiClient);
 
   /// Initie un paiement pour une publication ou un abonnement spécifique.
+  /// Les droits de revente ont été supprimés de la plateforme : il n'existe
+  /// que l'achat unitaire, l'abonnement et la recharge de portefeuille.
   Future<PaymentSession?> initiatePayment({
     String? publicationId,
     int? abonnementId,
@@ -60,7 +65,6 @@ class PaymentService {
     required double amount,
     required PaymentMethodType method,
     bool isSubscription = false,
-    bool isResellRight = false,
     bool isRecharge = false,
   }) async {
     try {
@@ -69,17 +73,30 @@ class PaymentService {
         typeTransaction = 'recharge';
       } else if (isSubscription) {
         typeTransaction = 'subscription';
-      } else if (isResellRight) {
-        typeTransaction = 'resell_right';
       } else {
         typeTransaction = 'purchase';
       }
 
-      String apiModePaiement = 'movapay';
-      if (method == PaymentMethodType.wallet) {
-        apiModePaiement = 'wallet';
-      } else if (method == PaymentMethodType.simulation) {
-        apiModePaiement = 'simulation';
+      // ─── CINETPAY : le moyen choisi détermine le canal ouvert ────────
+      // Portefeuille interne -> 'wallet' (débit interne, aucun passerelle)
+      // Mobile money (Wave/Orange/Moov/Sama) -> 'mobile_money' (canal
+      //   MOBILE de CinetPay)
+      // Carte bancaire -> 'card' (canal CARD de CinetPay)
+      // Tout le reste -> 'cinetpay' (tous les canaux)
+      String apiModePaiement = 'cinetpay';
+      switch (method) {
+        case PaymentMethodType.wallet:
+          apiModePaiement = 'wallet';
+          break;
+        case PaymentMethodType.wave:
+        case PaymentMethodType.orangeMoney:
+        case PaymentMethodType.moovMoney:
+        case PaymentMethodType.samaMoney:
+          apiModePaiement = 'mobile_money';
+          break;
+        case PaymentMethodType.stripe:
+          apiModePaiement = 'card';
+          break;
       }
 
       final Map<String, dynamic> requestData = {
@@ -105,8 +122,11 @@ class PaymentService {
       _logger
           .i('Session de paiement créée avec référence : ${session.reference}');
 
-      // Si un lien de redirection de paiement est fourni, on tente de l'ouvrir
-      if (session.paymentUrl.isNotEmpty) {
+      // Si un lien de redirection de paiement réel est fourni, on tente de l'ouvrir
+      // En mode simulation locale (URL contenant 'sandbox.cinetpay.com/checkout/MOCK_'),
+      // on n'ouvre pas de fenêtre externe factice afin de permettre une validation in-app fluide.
+      if (session.paymentUrl.isNotEmpty &&
+          !session.paymentUrl.contains('sandbox.cinetpay.com/checkout/MOCK_')) {
         await _launchPaymentUrl(session.paymentUrl);
       }
 

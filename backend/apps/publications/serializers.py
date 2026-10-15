@@ -16,7 +16,7 @@ class PublicationFileField(serializers.Field):
         return value
 
     def to_internal_value(self, data):
-        if not data:
+        if data is None or data == '' or data == b'':
             return ""
         if isinstance(data, str):
             if data.startswith('http://') or data.startswith('https://'):
@@ -72,14 +72,23 @@ class ConversationSerializer(serializers.Serializer):
 
 class CommentSerializer(serializers.ModelSerializer):
     author_name = serializers.SerializerMethodField()
+    author_badge = serializers.SerializerMethodField()
 
     class Meta:
         model = Comment
-        fields = ['id', 'publication', 'author', 'author_name', 'text', 'parent', 'created_at', 'updated_at']
+        fields = ['id', 'publication', 'author', 'author_name', 'author_badge', 'text', 'parent', 'created_at', 'updated_at']
         read_only_fields = ['author', 'publication', 'created_at', 'updated_at']
 
     def get_author_name(self, obj):
         return obj.author.name or obj.author.username
+
+    def get_author_badge(self, obj):
+        # ─── AJOUT : badge de compte visible partout, y compris ici ────────
+        # Permet d'afficher dans les commentaires si l'auteur est un
+        # éditeur (et son palier), un admin, ou un lecteur vérifié — voir
+        # User.badge_label côté backend / User.membershipBadgeLabel côté
+        # Flutter.
+        return obj.author.badge_label
 
 
 class ConversationMessageSerializer(serializers.Serializer):
@@ -91,6 +100,7 @@ class ConversationMessageSerializer(serializers.Serializer):
     type = serializers.ChoiceField(choices=['review', 'comment'])
     author_id = serializers.CharField()
     author_name = serializers.CharField()
+    author_badge = serializers.CharField(allow_null=True, required=False)
     text = serializers.CharField(allow_blank=True)
     rating = serializers.IntegerField(allow_null=True)
     parent_id = serializers.CharField(allow_null=True)
@@ -123,6 +133,7 @@ class FavoritePublicationSerializer(serializers.Serializer):
 
 class PublicationSerializer(serializers.ModelSerializer):
     publisher_name = serializers.SerializerMethodField()
+    publisher_badge = serializers.SerializerMethodField()
     category_name = serializers.CharField(source='category.name', read_only=True)
     is_subscribed = serializers.SerializerMethodField()
     file_url = serializers.SerializerMethodField()
@@ -138,9 +149,9 @@ class PublicationSerializer(serializers.ModelSerializer):
             'id', 'title', 'description', 'content', 'publisher', 'publisher_name',
             'category', 'category_name', 'cover_image', 'file_url', 'video_url', 'prix',
             'resell_price', 'original_publication', 'original_publisher_name',
-            'status', 'pub_type', 'is_free', 'views_count', 'downloads_count',
+            'status', 'pub_type', 'is_free', 'is_subscriber_exclusive', 'views_count', 'downloads_count', 'is_featured',
             'tags', 'tags_list', 'average_rating', 'reviews_count', 'is_subscribed',
-            'created_at', 'updated_at',
+            'created_at', 'updated_at', 'publisher_badge',
         ]
         read_only_fields = ['publisher', 'views_count', 'downloads_count', 'created_at', 'updated_at', 'original_publication']
 
@@ -157,13 +168,20 @@ class PublicationSerializer(serializers.ModelSerializer):
             return obj.publisher.publisher_profile.company_name
         return obj.publisher.name or obj.publisher.username
 
+    def get_publisher_badge(self, obj):
+        # Réutilise la même règle de badge que le profil/les conversations
+        # (voir User.badge_label) — pour que le lecteur voie en un coup
+        # d'œil le palier de l'éditeur directement sur chaque fiche.
+        return obj.publisher.badge_label
+
     def get_is_subscribed(self, obj):
-        return self._has_full_access(obj)
+        return obj.is_accessible_by(self._get_request_user())
 
     def get_content(self, obj):
         if obj.is_free or obj.prix == 0:
-            return obj.content
-        if self._has_full_access(obj):
+            if not obj.is_subscriber_exclusive:
+                return obj.content
+        if obj.is_accessible_by(self._get_request_user()):
             return obj.content
         return ''
 
@@ -177,48 +195,20 @@ class PublicationSerializer(serializers.ModelSerializer):
         l'endpoint dédié /publications/<id>/file/ pour les utilisateurs autorisés.
         """
         if obj.is_free or obj.prix == 0:
-            return obj.file_url
-        if self._has_full_access(obj):
+            if not obj.is_subscriber_exclusive:
+                return obj.file_url
+        if obj.is_accessible_by(self._get_request_user()):
             return obj.file_url
         return ''
 
-    def _has_full_access(self, obj):
+    def _get_request_user(self):
         request = self.context.get('request')
         user = None
         if request is not None:
             user = getattr(request, 'user', None)
             if not user and hasattr(request, '_request'):
                 user = getattr(request._request, 'user', None)
-        if not request or not user or not getattr(user, 'is_authenticated', False):
-            return False
-
-        # Les créateurs/éditeurs ont accès à leurs propres publications
-        if user == obj.publisher or user.role == 'admin':
-            return True
-
-        from apps.abonnements.models import Abonnement
-        from apps.paiements.models import Transaction
-        from django.utils import timezone
-        from django.db.models import Q
-
-        now = timezone.now()
-        active_subs = Abonnement.objects.filter(
-            reader=user,
-            status='active',
-            end_date__gt=now
-        )
-
-        if active_subs.filter(
-            Q(publication=obj) | Q(publisher=obj.publisher)
-        ).exists():
-            return True
-
-        return Transaction.objects.filter(
-            payer=user,
-            publication=obj,
-            type_transaction='purchase',
-            status='success'
-        ).exists()
+        return user
 
     def get_average_rating(self, obj):
         reviews = obj.reviews.all()
@@ -243,16 +233,16 @@ class PublicationCreateSerializer(serializers.ModelSerializer):
         required=False, allow_blank=True, write_only=True, max_length=100
     )
 
-    cover_image = PublicationFileField(upload_to='covers', required=False, allow_null=True)
-    file_url = PublicationFileField(upload_to='pdfs', required=False, allow_null=True)
-    video_url = PublicationFileField(upload_to='videos', required=False, allow_null=True)
+    cover_image = PublicationFileField(upload_to='covers', required=False, allow_null=False, default='')
+    file_url = PublicationFileField(upload_to='pdfs', required=False, allow_null=False, default='')
+    video_url = PublicationFileField(upload_to='videos', required=False, allow_null=False, default='')
 
     class Meta:
         model = Publication
         fields = [
             'id', 'title', 'description', 'content', 'category', 'category_name',
             'cover_image', 'file_url', 'video_url', 'prix', 'resell_price', 'status', 'pub_type', 'is_free',
-            'tags',
+            'is_subscriber_exclusive', 'tags', 'is_featured',
         ]
 
     def validate(self, attrs):
@@ -267,6 +257,19 @@ class PublicationCreateSerializer(serializers.ModelSerializer):
             # catégorie existante de l'article est simplement conservée.
             raise serializers.ValidationError(
                 {'category_name': "Veuillez indiquer le nom d'une catégorie."}
+            )
+
+        # ─── Un article PUBLIÉ doit avoir du contenu ─────────────────────
+        # Sinon le lecteur se retrouve avec une page intérieure vide sur
+        # l'accueil (le contenu est la seule chose affichée pour ce type).
+        # Les autres types (journal, magazine, rapport, e-book) utilisent un
+        # PDF (`file_url`) et peuvent légitimement avoir un `content` vide.
+        pub_type = attrs.get('pub_type', getattr(self.instance, 'pub_type', None))
+        status = attrs.get('status', getattr(self.instance, 'status', None))
+        content = attrs.get('content', getattr(self.instance, 'content', ''))
+        if pub_type == 'article' and status == 'published' and not (content or '').strip():
+            raise serializers.ValidationError(
+                {'content': 'Un article publié doit contenir du texte.'}
             )
         return attrs
 

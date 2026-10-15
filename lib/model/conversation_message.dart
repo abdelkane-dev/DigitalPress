@@ -6,6 +6,10 @@ class ConversationMessage {
   final String type; // 'review' | 'comment'
   final String authorId;
   final String authorName;
+  /// Badge de compte de l'auteur (ex: "Membre Premium", "Super utilisateur",
+  /// "Compte vérifié"), `null` si aucun badge à afficher — voir
+  /// User.badge_label côté backend.
+  final String? authorBadge;
   final String text;
   final int? rating; // uniquement pour type == 'review'
   final String? parentId; // uniquement pour type == 'comment' (réponse à)
@@ -18,6 +22,7 @@ class ConversationMessage {
     required this.type,
     required this.authorId,
     required this.authorName,
+    this.authorBadge,
     required this.text,
     required this.rating,
     required this.parentId,
@@ -34,6 +39,7 @@ class ConversationMessage {
       type: json['type'] as String,
       authorId: json['author_id'] as String,
       authorName: json['author_name'] as String? ?? '',
+      authorBadge: json['author_badge'] as String?,
       text: json['text'] as String? ?? '',
       rating: json['rating'] as int?,
       parentId: json['parent_id'] as String?,

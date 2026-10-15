@@ -1,4 +1,5 @@
 class UserProfile {
+
   final String id;
   final String email;
   final String? displayName;
@@ -35,9 +36,13 @@ class UserProfile {
       lastLoginAt: json['last_login_at'] != null
           ? DateTime.parse(json['last_login_at'] as String)
           : null,
-      stats: UserStats.fromJson(json['stats'] as Map<String, dynamic>? ?? {}),
+      stats: UserStats.fromJson(json['stats'] is Map
+          ? Map<String, dynamic>.from(json['stats'] as Map)
+          : <String, dynamic>{}),
       preferences: UserPreferences.fromJson(
-        json['preferences'] as Map<String, dynamic>? ?? {},
+        json['preferences'] is Map
+            ? Map<String, dynamic>.from(json['preferences'] as Map)
+            : <String, dynamic>{},
       ),
     );
   }

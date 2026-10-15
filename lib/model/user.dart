@@ -1,4 +1,5 @@
 class User {
+
   final String id;
   final String email;
   final String username;
@@ -20,6 +21,19 @@ class User {
   final String? address;
   final String? website;
   final String? bio;
+  /// PublisherProfile.is_active côté backend : accès plateforme actuel de
+  /// l'éditeur. Toujours `true` dès la création du compte (accès gratuit
+  /// et automatique) ; passe à `false` uniquement si un admin bannit le
+  /// compte. Toujours `true` pour les non-éditeurs.
+  final bool isPublisherActive;
+  /// PublisherProfile -> User.verification.status côté backend :
+  /// 'not_submitted' | 'pending' | 'approved' | 'rejected'. Dossier de
+  /// légitimité, sans effet sur l'accès à la publication.
+  final String verificationStatus;
+  /// Palier plateforme actuel de l'éditeur (Basique/Standard/Premium),
+  /// `null` pour les non-éditeurs — voir
+  /// apps.abonnements.services.sync_publisher_tier côté backend.
+  final String? platformPlanName;
 
   User({
     required this.id,
@@ -39,18 +53,45 @@ class User {
     this.address,
     this.website,
     this.bio,
+    this.isPublisherActive = true,
+    this.verificationStatus = 'not_submitted',
+    this.platformPlanName,
   });
 
   bool get isAdmin => role == 'admin';
   bool get isPublisher => role == 'publisher';
   bool get isReader => role == 'reader';
 
+  /// Libellé du badge affiché sur l'écran de profil — voir
+  /// profile_screen.dart. CORRECTIF : ce badge affichait "Membre Premium"
+  /// en dur pour n'importe quel utilisateur vérifié, peu importe son rôle
+  /// ou son palier réel. Retourne `null` quand aucun badge ne doit
+  /// s'afficher (utilisateur non vérifié).
+  String? get membershipBadgeLabel {
+    if (isAdmin) return 'Super utilisateur';
+    if (isPublisher) {
+      if (!isVerified) return null;
+      // 'Basique' n'a pas de badge vérifié côté plateforme (voir
+      // PlatformPlan.has_verified_badge) — seuls Standard/Premium en ont un.
+      if (platformPlanName == null || platformPlanName == 'Basique') return null;
+      return 'Membre $platformPlanName';
+    }
+    // Lecteur : pas de notion de palier, juste un compte vérifié ou non.
+    return isVerified ? 'Compte vérifié' : null;
+  }
+
   /// Mappe la réponse Django `UserSerializer` / login `user`.
   factory User.fromApiJson(Map<String, dynamic> json) {
     final dateJoined = json['date_joined'] as String?;
-    final pubProfile = json['publisher_profile'] as Map<String, dynamic>?;
-    final statsJson = json['stats'] as Map<String, dynamic>? ?? {};
-    final prefsJson = json['preferences'] as Map<String, dynamic>? ?? {};
+    final pubProfile = json['publisher_profile'] is Map
+        ? Map<String, dynamic>.from(json['publisher_profile'] as Map)
+        : null;
+    final statsJson = json['stats'] is Map
+        ? Map<String, dynamic>.from(json['stats'] as Map)
+        : <String, dynamic>{};
+    final prefsJson = json['preferences'] is Map
+        ? Map<String, dynamic>.from(json['preferences'] as Map)
+        : <String, dynamic>{};
     return User(
       id: json['id'].toString(),
       email: json['email'] as String? ?? '',
@@ -70,25 +111,45 @@ class User {
       address: pubProfile?['address'] as String?,
       website: pubProfile?['website'] as String?,
       bio: pubProfile?['bio'] as String?,
+      // Absent (non-éditeur) => true : le champ ne s'applique qu'aux éditeurs.
+      isPublisherActive: pubProfile?['is_active'] as bool? ?? true,
+      verificationStatus: json['verification_status'] as String? ?? 'not_submitted',
+      platformPlanName: json['platform_plan_name'] as String?,
     );
   }
 
   factory User.fromJson(Map<String, dynamic> json) {
+    final statsJson = json['stats'] is Map
+        ? Map<String, dynamic>.from(json['stats'] as Map)
+        : <String, dynamic>{};
+    final prefsJson = json['preferences'] is Map
+        ? Map<String, dynamic>.from(json['preferences'] as Map)
+        : <String, dynamic>{};
     return User(
-      id: json['id'] as String,
-      email: json['email'] as String,
+      id: (json['id'] ?? '').toString(),
+      email: json['email'] as String? ?? '',
+      username: json['username'] as String? ?? '',
+      role: json['role'] as String? ?? 'reader',
       displayName: json['display_name'] as String?,
       phoneNumber: json['phone_number'] as String?,
       photoUrl: json['photo_url'] as String?,
       isVerified: json['is_verified'] as bool? ?? false,
-      createdAt: DateTime.parse(json['created_at'] as String),
+      createdAt: json['created_at'] != null
+          ? DateTime.tryParse(json['created_at'] as String) ?? DateTime.now()
+          : DateTime.now(),
       lastLoginAt: json['last_login_at'] != null
-          ? DateTime.parse(json['last_login_at'] as String)
+          ? DateTime.tryParse(json['last_login_at'] as String)
           : null,
-      stats: UserStats.fromJson(json['stats'] as Map<String, dynamic>? ?? {}),
-      preferences: UserPreferences.fromJson(
-        json['preferences'] as Map<String, dynamic>? ?? {},
-      ),
+      stats: UserStats.fromJson(statsJson),
+      preferences: UserPreferences.fromJson(prefsJson),
+      companyName: json['company_name'] as String?,
+      siret: json['siret'] as String?,
+      address: json['address'] as String?,
+      website: json['website'] as String?,
+      bio: json['bio'] as String?,
+      isPublisherActive: json['is_publisher_active'] as bool? ?? true,
+      verificationStatus: json['verification_status'] as String? ?? 'not_submitted',
+      platformPlanName: json['platform_plan_name'] as String?,
     );
   }
 
@@ -96,6 +157,8 @@ class User {
     return {
       'id': id,
       'email': email,
+      'username': username,
+      'role': role,
       'display_name': displayName,
       'phone_number': phoneNumber,
       'photo_url': photoUrl,
@@ -104,6 +167,14 @@ class User {
       'last_login_at': lastLoginAt?.toIso8601String(),
       'stats': stats.toJson(),
       'preferences': preferences.toJson(),
+      'company_name': companyName,
+      'siret': siret,
+      'address': address,
+      'website': website,
+      'bio': bio,
+      'is_publisher_active': isPublisherActive,
+      'verification_status': verificationStatus,
+      'platform_plan_name': platformPlanName,
     };
   }
 
@@ -125,6 +196,9 @@ class User {
     String? address,
     String? website,
     String? bio,
+    bool? isPublisherActive,
+    String? verificationStatus,
+    String? platformPlanName,
   }) {
     return User(
       id: id ?? this.id,
@@ -144,6 +218,15 @@ class User {
       address: address ?? this.address,
       website: website ?? this.website,
       bio: bio ?? this.bio,
+      // CORRECTIF : ces 3 champs manquaient ici — tout appel à copyWith()
+      // (voir auth_service.dart, après une mise à jour de préférences)
+      // les réinitialisait silencieusement à leur valeur par défaut
+      // (isPublisherActive=true, verificationStatus='not_submitted',
+      // platformPlanName=null), pouvant faire croire à tort au router
+      // qu'un éditeur vérifié/actif ne l'était plus.
+      isPublisherActive: isPublisherActive ?? this.isPublisherActive,
+      verificationStatus: verificationStatus ?? this.verificationStatus,
+      platformPlanName: platformPlanName ?? this.platformPlanName,
     );
   }
 }
@@ -155,12 +238,28 @@ class UserStats {
   final double totalSpent;
   final int readingStreak;
 
+  // ─── Stats propres aux Éditeurs (activité de publication) ────────────
+  final int totalPublications;
+  final int totalViews;
+  final int totalSubscribers;
+
+  // ─── Stats propres aux Admins (vue globale plateforme) ───────────────
+  final int totalUsers;
+  final double totalRevenue;
+  final int totalTransactions;
+
   UserStats({
     this.totalPurchases = 0,
     this.totalReads = 0,
     this.totalBookmarks = 0,
     this.totalSpent = 0.0,
     this.readingStreak = 0,
+    this.totalPublications = 0,
+    this.totalViews = 0,
+    this.totalSubscribers = 0,
+    this.totalUsers = 0,
+    this.totalRevenue = 0.0,
+    this.totalTransactions = 0,
   });
 
   factory UserStats.fromJson(Map<String, dynamic> json) {
@@ -170,6 +269,12 @@ class UserStats {
       totalBookmarks: json['total_bookmarks'] as int? ?? 0,
       totalSpent: (json['total_spent'] as num?)?.toDouble() ?? 0.0,
       readingStreak: json['reading_streak'] as int? ?? 0,
+      totalPublications: json['total_publications'] as int? ?? 0,
+      totalViews: json['total_views'] as int? ?? 0,
+      totalSubscribers: json['total_subscribers'] as int? ?? 0,
+      totalUsers: json['total_users'] as int? ?? 0,
+      totalRevenue: (json['total_revenue'] as num?)?.toDouble() ?? 0.0,
+      totalTransactions: json['total_transactions'] as int? ?? 0,
     );
   }
 
@@ -180,6 +285,12 @@ class UserStats {
       'total_bookmarks': totalBookmarks,
       'total_spent': totalSpent,
       'reading_streak': readingStreak,
+      'total_publications': totalPublications,
+      'total_views': totalViews,
+      'total_subscribers': totalSubscribers,
+      'total_users': totalUsers,
+      'total_revenue': totalRevenue,
+      'total_transactions': totalTransactions,
     };
   }
 
@@ -189,6 +300,12 @@ class UserStats {
     int? totalBookmarks,
     double? totalSpent,
     int? readingStreak,
+    int? totalPublications,
+    int? totalViews,
+    int? totalSubscribers,
+    int? totalUsers,
+    double? totalRevenue,
+    int? totalTransactions,
   }) {
     return UserStats(
       totalPurchases: totalPurchases ?? this.totalPurchases,
@@ -196,6 +313,12 @@ class UserStats {
       totalBookmarks: totalBookmarks ?? this.totalBookmarks,
       totalSpent: totalSpent ?? this.totalSpent,
       readingStreak: readingStreak ?? this.readingStreak,
+      totalPublications: totalPublications ?? this.totalPublications,
+      totalViews: totalViews ?? this.totalViews,
+      totalSubscribers: totalSubscribers ?? this.totalSubscribers,
+      totalUsers: totalUsers ?? this.totalUsers,
+      totalRevenue: totalRevenue ?? this.totalRevenue,
+      totalTransactions: totalTransactions ?? this.totalTransactions,
     );
   }
 }

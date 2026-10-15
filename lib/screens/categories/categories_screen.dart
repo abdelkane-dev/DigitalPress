@@ -158,11 +158,13 @@ class _CategoriesScreenState extends ConsumerState<CategoriesScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.transparent,
+      // ─── CORRECTIF : même bug que ProfileScreen (voir ce fichier pour
+      // le détail) — fond transparent qui laissait apparaître un écran
+      // noir quand le contenu du CustomScrollView ne remplit pas l'écran.
       body: CustomScrollView(
         slivers: [
           MainAppBar(
-            title: 'Catégories',
+            title: 'catégories',
             extraAction: Container(
               margin: const EdgeInsets.only(right: 4),
               decoration: BoxDecoration(

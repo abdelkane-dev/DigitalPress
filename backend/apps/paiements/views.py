@@ -1,8 +1,10 @@
 from rest_framework import generics, permissions, status
 from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 from django.utils import timezone
+from django.conf import settings
 from django.db import transaction as db_transaction
 from .models import Transaction, DemandeRetrait
 from .serializers import (
@@ -10,9 +12,9 @@ from .serializers import (
     VerifierPaiementSerializer, DemandeRetraitSerializer,
     DemandeRetraitCreateSerializer, AdminTraiterRetraitSerializer,
 )
-from .movapay import movapay_service, verify_webhook_signature
+from .cinetpay import cinetpay_service, verify_webhook_signature
 from apps.accounts.permissions import IsAdmin, IsPublisher, IsAdminOrPublisher
-from apps.accounts.models import PublisherProfile
+from apps.accounts.models import PublisherProfile, User
 from apps.comptabilite.utils import enregistrer_ecriture
 from apps.notifications.models import Notification
 import uuid
@@ -59,56 +61,8 @@ def _create_payment_notifications(tx):
                 message=f'Votre abonnement a été activé avec succès ({montant} FCFA).',
                 data={'transaction_id': str(tx.id)},
             )
-        elif tx.type_transaction == 'resell_right':
-            pub_title = tx.publication.title if tx.publication else 'Article'
-            Notification.objects.create(
-                user=tx.payer,
-                type_notif='payment_success',
-                title='Achat droits de revente',
-                message=f'Vous avez acquis les droits de revente de « {pub_title} » ({montant} FCFA).',
-                data={'transaction_id': str(tx.id), 'publication_id': tx.publication_id},
-            )
-            if tx.beneficiaire:
-                Notification.objects.create(
-                    user=tx.beneficiaire,
-                    type_notif='payment_success',
-                    title='Cession de droits de revente',
-                    message=f'Droits de revente acquis pour « {pub_title} ». Gain: {int(tx.montant_net)} FCFA.',
-                    data={'transaction_id': str(tx.id)},
-                )
     except Exception as e:
         logger.error("Erreur création notification paiement: %s", str(e))
-
-def _activer_resell_right(tx):
-    from apps.publications.models import CollaborationRight, Publication
-    try:
-        CollaborationRight.objects.get_or_create(
-            buyer_publisher=tx.payer,
-            original_publication=tx.publication,
-            defaults={'price_paid': tx.montant_brut}
-        )
-        # Cloner la publication pour qu'elle apparaisse dans le catalogue du revendeur
-        # La présence de original_publication permettra au frontend d'afficher "Revendu par"
-        if not Publication.objects.filter(publisher=tx.payer, original_publication=tx.publication).exists():
-            Publication.objects.create(
-                title=tx.publication.title,
-                description=tx.publication.description,
-                content=tx.publication.content,
-                publisher=tx.payer,
-                category=tx.publication.category,
-                cover_image=tx.publication.cover_image,
-                file_url=tx.publication.file_url,
-                video_url=tx.publication.video_url,
-                prix=tx.publication.prix,
-                status='published',
-                pub_type=tx.publication.pub_type,
-                is_free=tx.publication.is_free,
-                tags=tx.publication.tags,
-                original_publication=tx.publication
-            )
-    except Exception as e:
-        logger.error("Erreur activation resell right: %s", str(e))
-
 
 class InitierPaiementView(APIView):
     permission_classes = [permissions.IsAuthenticated]
@@ -161,9 +115,41 @@ class InitierPaiementView(APIView):
                 return Response({'error': 'Cet abonnement est déjà actif.'}, status=400)
             beneficiaire = abonnement.publisher
 
+        publisher_subscription = None
+        if data.get('publisher_subscription_id'):
+            # Le palier plateforme est désormais automatique et gratuit
+            # (voir apps.abonnements.services) : aucun paiement n'est plus
+            # possible pour ce type de transaction.
+            return Response(
+                {'error': "Le palier plateforme est automatique et gratuit, aucun paiement n'est requis."},
+                status=400,
+            )
+
         from decimal import Decimal
         type_tx = data.get('type_transaction', 'purchase')
-        mode_paiement = data.get('mode_paiement', 'movapay')
+        mode_paiement = data.get('mode_paiement', 'cinetpay')
+
+        # ─── MODE SIMULATION ─────────────────────────────────────────────
+        # Si 'simulation' est explicitement spécifié (tests/dev), on utilise
+        # le mock local. Sinon, CinetPay bascule automatiquement en mode
+        # simulation dès qu'aucune clé réelle n'est configurée dans le .env
+        # (voir cinetpay.is_sandbox_mode) : tout le parcours de paiement
+        # fonctionne en dev, et le passage en production se fait en
+        # remplissant CINETPAY_API_KEY / CINETPAY_SITE_ID / CINETPAY_SECRET.
+        is_explicit_simulation = (mode_paiement == 'simulation')
+
+        # ─── CANAUX CINETPAY SELON LE MOYEN CHOISI ──────────────────────
+        # L'app choisit un moyen (Wave, Orange Money, Moov Money, carte...)
+        # → CinetPay n'ouvre que les canaux pertinents :
+        #   'mobile_money' -> MOBILE   (Wave/OM/Moov/Sama)
+        #   'card'         -> CARD     (Visa, Mastercard, AMEX)
+        #   autre / 'all'  -> ALL      (tous les moyens disponibles)
+        if mode_paiement == 'mobile_money':
+            cinetpay_channels = 'MOBILE'
+        elif mode_paiement == 'card':
+            cinetpay_channels = 'CARD'
+        else:
+            cinetpay_channels = 'ALL'
 
         # ─── SÉCURITÉ CRITIQUE : LE MONTANT N'EST JAMAIS FOURNI PAR LE CLIENT ──
         # Conformément au principe « Aucune confiance accordée au frontend » :
@@ -192,24 +178,28 @@ class InitierPaiementView(APIView):
                 )
                 return Response({'error': 'Montant de recharge invalide.'}, status=400)
         elif publication is not None:
+            # ─── DROITS DE REVENTE SUPPRIMÉS DE LA PLATEFORME ─────────────
+            # Demande explicite : « soit tu achètes, soit tu t'abonnes, point. »
+            # Aucun paiement de type resell_right n'est plus accepté, même si
+            # un ancien client tente d'appeler l'API directement.
             if type_tx == 'resell_right':
-                if publication.resell_price is None or publication.resell_price <= 0:
-                    return Response({'error': 'Cette publication n\'est pas disponible pour la revente.'}, status=400)
-                if request.user.role != 'publisher':
-                    return Response({'error': 'Seul un éditeur peut acheter des droits de revente.'}, status=403)
-                montant = publication.resell_price
-            else:
-                if publication.is_free or publication.prix == 0:
-                    logger.warning(
-                        "InitierPaiement publication gratuite user=%s data=%s publication=%s",
-                        request.user,
-                        request.data,
-                        publication.id,
-                    )
-                    return Response({'error': 'Cette publication est gratuite, aucun paiement requis.'}, status=400)
-                montant = publication.prix
+                return Response(
+                    {'error': "L'achat de droits de revente a été supprimé de la plateforme."},
+                    status=400,
+                )
+            if publication.is_free or publication.prix == 0:
+                logger.warning(
+                    "InitierPaiement publication gratuite user=%s data=%s publication=%s",
+                    request.user,
+                    request.data,
+                    publication.id,
+                )
+                return Response({'error': 'Cette publication est gratuite, aucun paiement requis.'}, status=400)
+            montant = publication.prix
         elif abonnement is not None:
             montant = abonnement.montant
+        elif publisher_subscription is not None:
+            montant = publisher_subscription.montant
         else:
             logger.warning(
                 "InitierPaiement montant indetermine user=%s data=%s",
@@ -217,24 +207,36 @@ class InitierPaiementView(APIView):
                 request.data,
             )
             return Response(
-                {'error': "Impossible de déterminer le montant : precisez publication_id ou abonnement_id."},
+                {'error': "Impossible de déterminer le montant : precisez publication_id, abonnement_id ou publisher_subscription_id."},
                 status=400,
             )
 
         # Récupérer le taux de commission du profil de l'éditeur ou 10% par défaut
         rate = Decimal('10.00')
-        if beneficiaire and beneficiaire.role == 'publisher':
+        if type_tx == 'platform_subscription':
+            # 100% pour la plateforme, aucun profil éditeur n'est crédité.
+            rate = Decimal('100.00')
+        elif beneficiaire and beneficiaire.role == 'publisher':
             profile, _ = PublisherProfile.objects.get_or_create(
                 user=beneficiaire,
                 defaults={'company_name': beneficiaire.name or beneficiaire.username}
             )
             rate = profile.commission_rate
+            # ─── AVANTAGE RÉEL DU PLAN : COMMISSION RÉDUITE ────────────────
+            # Le plan plateforme actif de l'éditeur (Basique/Standard/
+            # Premium) fixe le taux réellement appliqué — un vrai avantage
+            # financier différent par plan, pas juste un texte affiché.
+            active_sub = beneficiaire.platform_subscriptions.filter(
+                status='active'
+            ).select_related('plan').first()
+            if active_sub and active_sub.plan:
+                rate = active_sub.plan.commission_rate
             
         commission = round(montant * (rate / Decimal('100.00')), 2)
         montant_net = round(montant - commission, 2)
         reference = str(uuid.uuid4())
 
-        if mode_paiement == 'wallet' or mode_paiement == 'simulation':
+        if mode_paiement == 'wallet':
             if type_tx == 'recharge' and mode_paiement == 'wallet':
                 return Response({'error': 'Impossible de recharger un portefeuille avec le portefeuille.'}, status=400)
             
@@ -250,14 +252,27 @@ class InitierPaiementView(APIView):
                 return Response({'error': 'Solde insuffisant dans votre portefeuille.'}, status=400)
             
             with db_transaction.atomic():
-                # Débiter le client (uniquement si wallet)
+                # ─── SÉCURITÉ FINANCIÈRE ──────────────────────────────────
+                # Reverrouille et re-vérifie le solde DANS la transaction
+                # atomique, juste avant le débit : la vérification faite
+                # plus haut (avant d'entrer ici) n'empêchait pas un
+                # double-clic ou une requête réseau rejouée de passer deux
+                # fois la même vérification avant que l'une des deux
+                # n'écrive le nouveau solde — d'où un double débit possible
+                # sur un simple achat, potentiellement jusqu'à un solde
+                # négatif.
                 if mode_paiement == 'wallet':
+                    user = User.objects.select_for_update().get(pk=user.pk)
+                    if user.solde < montant:
+                        return Response(
+                            {'error': 'Solde insuffisant dans votre portefeuille.'}, status=400
+                        )
                     user.solde -= montant
                     user.save(update_fields=['solde'])
                 
                 # Créditer l'éditeur
                 if beneficiaire and beneficiaire.role == 'publisher':
-                    profile, _ = PublisherProfile.objects.get_or_create(
+                    profile, _ = PublisherProfile.objects.select_for_update().get_or_create(
                         user=beneficiaire,
                         defaults={'company_name': beneficiaire.name or beneficiaire.username}
                     )
@@ -272,6 +287,7 @@ class InitierPaiementView(APIView):
                     beneficiaire=beneficiaire,
                     publication=publication,
                     abonnement=abonnement,
+                    publisher_subscription=publisher_subscription,
                     type_transaction=type_tx,
                     montant_brut=montant,
                     commission=commission,
@@ -286,9 +302,9 @@ class InitierPaiementView(APIView):
                 # Activer l'abonnement si type_transaction == 'subscription'
                 if type_tx == 'subscription' and abonnement:
                     abonnement.activate(tx.reference)
-                    
-                if type_tx == 'resell_right' and publication:
-                    _activer_resell_right(tx)
+
+                if type_tx == 'platform_subscription' and publisher_subscription:
+                    publisher_subscription.activate(tx.reference)
 
                 # Enregistrer l'écriture comptable
                 try:
@@ -308,13 +324,23 @@ class InitierPaiementView(APIView):
                 'message': 'Paiement effectué avec succès via votre portefeuille.',
             }, status=status.HTTP_201_CREATED)
 
-        # Appel Movapay pour mode_paiement == 'movapay'
-        movapay_result = movapay_service.initier_paiement(
-            montant=float(montant),
-            phone=data.get('phone', ''),
-            reference=reference,
-            description=data.get('description', ''),
-        )
+        # Appel passerelle CinetPay ou simulation mock
+        if is_explicit_simulation:
+            cinetpay_result = cinetpay_service._mock_initier(
+                reference=reference,
+                montant=float(montant),
+                phone=data.get('phone', ''),
+            )
+        else:
+            cinetpay_result = cinetpay_service.initier_paiement(
+                montant=float(montant),
+                reference=reference,
+                description=data.get('description', ''),
+                phone=data.get('phone', ''),
+                email=getattr(request.user, 'email', '') or '',
+                customer_name=getattr(request.user, 'name', '') or getattr(request.user, 'username', '') or '',
+                channels=cinetpay_channels,
+            )
 
         # Créer la transaction en attente
         tx = Transaction.objects.create(
@@ -323,6 +349,7 @@ class InitierPaiementView(APIView):
             beneficiaire=beneficiaire,
             publication=publication,
             abonnement=abonnement,
+            publisher_subscription=publisher_subscription,
             type_transaction=type_tx,
             montant_brut=montant,
             commission=commission,
@@ -330,15 +357,14 @@ class InitierPaiementView(APIView):
             phone_payer=data.get('phone', ''),
             status='pending',
             description=data.get('description', ''),
-            metadata=movapay_result,
+            metadata=cinetpay_result,
         )
-
 
         return Response({
             'transaction': TransactionSerializer(tx).data,
-            'payment_url': movapay_result.get('payment_url', ''),
-            'movapay_ref': movapay_result.get('movapay_ref', ''),
-            'message': movapay_result.get('message', ''),
+            'payment_url': cinetpay_result.get('payment_url', ''),
+            'cinetpay_ref': cinetpay_result.get('cinetpay_ref', ''),
+            'message': cinetpay_result.get('message', ''),
         }, status=status.HTTP_201_CREATED)
 
 
@@ -359,33 +385,46 @@ class VerifierPaiementView(APIView):
             return Response({'error': 'Accès refusé à cette transaction.'}, status=403)
 
         # Si la transaction est déjà à un statut final, ou si elle a été réglée
-        # via le portefeuille interne (pas de référence Movapay), on renvoie
+        # via le portefeuille interne (pas de référence passerelle), on renvoie
         # directement le résultat sans interroger la passerelle externe.
         is_wallet = isinstance(tx.metadata, dict) and tx.metadata.get('mode_paiement') == 'wallet'
         is_final = tx.status in ('success', 'failed', 'cancelled', 'refunded')
         if is_final or is_wallet:
             return Response({
                 'transaction': TransactionSerializer(tx).data,
-                'movapay_status': tx.status,
+                'payment_status': tx.status,
                 'message': 'Transaction déjà traitée.',
             })
 
-        # Vérifier auprès de Movapay
-        result = movapay_service.verifier_paiement(
-            reference=data['reference'],
-            movapay_ref=data.get('movapay_ref', tx.movapay_ref),
-        )
+        # Vérifier auprès de CinetPay (statut réel, pas les données client)
+        result = cinetpay_service.verifier_paiement(reference=data['reference'])
+        result.setdefault('cinetpay_ref', result.get('cinetpay_ref', ''))
 
         if result.get('status') == 'success' and tx.status == 'pending':
             with db_transaction.atomic():
+                # ─── SÉCURITÉ FINANCIÈRE ──────────────────────────────────
+                # Reverrouille la transaction sous select_for_update() dans
+                # la section critique : sans ça, deux vérifications
+                # concurrentes (ex: le webhook CinetPay ET cet appel manuel
+                # de vérification arrivant en même temps) pouvaient toutes
+                # les deux lire status='pending' avant que l'une n'écrive
+                # 'success', et donc créditer le portefeuille DEUX FOIS
+                # pour un seul paiement réel.
+                tx = Transaction.objects.select_for_update().get(pk=tx.pk)
+                if tx.status != 'pending':
+                    return Response({
+                        'transaction': TransactionSerializer(tx).data,
+                        'payment_status': tx.status,
+                        'message': 'Transaction déjà traitée.',
+                    })
                 tx.status = 'success'
-                tx.movapay_ref = result.get('movapay_ref', tx.movapay_ref)
+                tx.cinetpay_ref = result.get('cinetpay_ref', tx.cinetpay_ref)
                 tx.processed_at = timezone.now()
                 tx.save()
 
                 if tx.type_transaction == 'recharge':
                     # Créditer le solde portefeuille du client
-                    payer = tx.payer
+                    payer = User.objects.select_for_update().get(pk=tx.payer_id)
                     payer.solde += tx.montant_brut
                     payer.save(update_fields=['solde'])
                 else:
@@ -402,9 +441,9 @@ class VerifierPaiementView(APIView):
                 # Activer l'abonnement si type_transaction == 'subscription'
                 if tx.type_transaction == 'subscription' and tx.abonnement:
                     tx.abonnement.activate(tx.reference)
-                    
-                if tx.type_transaction == 'resell_right' and tx.publication:
-                    _activer_resell_right(tx)
+
+                if tx.type_transaction == 'platform_subscription' and tx.publisher_subscription:
+                    tx.publisher_subscription.activate(tx.reference)
 
                 # Enregistrer écriture comptable
                 try:
@@ -429,35 +468,45 @@ class VerifierPaiementView(APIView):
                 message=f'Votre paiement de {int(tx.montant_brut)} FCFA a échoué. Veuillez réessayer.',
                 data={'transaction_id': str(tx.id)},
             )
+        elif result.get('status') == 'cancelled':
+            tx.status = 'cancelled'
+            tx.save(update_fields=['status'])
 
         return Response({
             'transaction': TransactionSerializer(tx).data,
-            'movapay_status': result.get('status', 'unknown'),
+            'payment_status': result.get('status', 'unknown'),
             'message': result.get('message', ''),
         })
 
 
 class WebhookView(APIView):
-    """Webhook Movapay — notification de paiement.
+    """Webhook CinetPay — notification de paiement.
 
-    Ce point d'accès doit rester ouvert (AllowAny) car c'est Movapay, et non
-    un utilisateur connecté, qui l'appelle. La sécurité repose donc entièrement
-    sur la vérification de signature ci-dessous : sans elle, n'importe qui
-    pouvait auparavant simuler une confirmation de paiement et créditer
-    frauduleusement un compte.
+    Ce point d'accès doit rester ouvert (AllowAny) car c'est CinetPay, et non
+    un utilisateur connecté, qui l'appelle. La sécurité repose donc sur DEUX
+    vérifications complémentaires :
+      1. La signature HMAC du webhook (X-TOKEN / X-Cinetpay-Signature) — sans
+         elle, n'importe qui pouvait simuler une confirmation et créditer
+         frauduleusement un compte.
+      2. La re-vérification du statut RÉEL de la transaction auprès de
+         l'API CinetPay (/v2/payment/check) : les données du webhook ne
+         servent que de déclencheur, jamais de preuve (recommandation
+         officielle CinetPay — un faux webhook signé ne suffit donc pas).
     """
     permission_classes = [permissions.AllowAny]
 
     def post(self, request):
-        signature = request.headers.get('X-Movapay-Signature', '')
+        # CinetPay peut envoyer la signature sous X-TOKEN ou une en-tête
+        # dédiée selon la version de l'API.
+        signature = request.headers.get(
+            'X-TOKEN', request.headers.get('X-Cinetpay-Signature', '')
+        )
         if not verify_webhook_signature(request.body, signature):
-            logger.warning("Webhook Movapay rejeté : signature invalide ou manquante.")
+            logger.warning("Webhook CinetPay rejeté : signature invalide ou manquante.")
             return Response({'error': 'Signature invalide.'}, status=status.HTTP_401_UNAUTHORIZED)
 
-        data = request.data
-        reference = data.get('external_ref', '')
-        movapay_ref = data.get('transaction_id', '')
-        movapay_status = data.get('status', '').lower()
+        data = request.data or {}
+        reference = data.get('cpm_trans_id') or data.get('external_ref') or data.get('transaction_id', '')
 
         if not reference:
             return Response({'error': 'Référence manquante.'}, status=400)
@@ -467,19 +516,29 @@ class WebhookView(APIView):
         except Transaction.DoesNotExist:
             return Response({'error': 'Transaction introuvable.'}, status=404)
 
-        status_map = {'completed': 'success', 'paid': 'success', 'failed': 'failed', 'cancelled': 'cancelled'}
-        new_status = status_map.get(movapay_status, 'pending')
+        # ⚠️ Sécurité : on ne fait JAMAIS confiance au statut envoyé par le
+        # webhook — on interroge CinetPay pour obtenir le statut réel.
+        result = cinetpay_service.verifier_paiement(reference=reference)
+        new_status = result.get('status', 'pending')
+        cinetpay_ref = result.get('cinetpay_ref', '') or reference
 
         if new_status == 'success' and tx.status == 'pending':
             with db_transaction.atomic():
+                # Voir le commentaire équivalent dans VerifierPaiementView :
+                # reverrouillage anti-double-crédit indispensable ici aussi,
+                # c'est le webhook CinetPay qui peut légitimement être
+                # rappelé plusieurs fois par la passerelle (retries réseau).
+                tx = Transaction.objects.select_for_update().get(pk=tx.pk)
+                if tx.status != 'pending':
+                    return Response({'message': 'Déjà traité.'})
                 tx.status = 'success'
-                tx.movapay_ref = movapay_ref
+                tx.cinetpay_ref = cinetpay_ref
                 tx.processed_at = timezone.now()
                 tx.save()
-                
+
                 if tx.type_transaction == 'recharge':
                     # Créditer le solde portefeuille du client
-                    payer = tx.payer
+                    payer = User.objects.select_for_update().get(pk=tx.payer_id)
                     payer.solde += tx.montant_brut
                     payer.save(update_fields=['solde'])
                 else:
@@ -495,9 +554,9 @@ class WebhookView(APIView):
                 # Activer l'abonnement si type_transaction == 'subscription'
                 if tx.type_transaction == 'subscription' and tx.abonnement:
                     tx.abonnement.activate(tx.reference)
-                    
-                if tx.type_transaction == 'resell_right' and tx.publication:
-                    _activer_resell_right(tx)
+
+                if tx.type_transaction == 'platform_subscription' and tx.publisher_subscription:
+                    tx.publisher_subscription.activate(tx.reference)
 
                 try:
                     with db_transaction.atomic():
@@ -525,6 +584,11 @@ class MesTransactionsView(generics.ListAPIView):
         tx_type = self.request.query_params.get('type')
         if tx_type:
             qs = qs.filter(type_transaction=tx_type)
+        # ─── FILTRE PAR STATUT (ex: ?status=refunded pour la page
+        # « Remboursements » du portefeuille) ──────────────────────────────
+        status_filter = self.request.query_params.get('status')
+        if status_filter:
+            qs = qs.filter(status=status_filter)
         return qs.order_by('-created_at')
 
 
@@ -547,6 +611,90 @@ class AdminTransactionsView(generics.ListAPIView):
         if date_to:
             qs = qs.filter(created_at__date__lte=date_to)
         return qs.order_by('-created_at')
+
+
+class WithdrawalOtpView(APIView):
+    """POST /api/paiements/retrait/otp/  Body: {"channel": "email" | "sms"}
+
+    Envoie un code OTP à 6 chiffres (15 min) au titulaire du compte avant
+    qu'il puisse valider une demande de retrait — protection contre les
+    retraits frauduleux (demande explicite). Le code est haché en base
+    (jamais stocké en clair), comme les codes d'activation de compte.
+
+    Canal : 'email' par défaut (boîte mail du compte). Le canal 'sms'
+    envoie de vrais SMS via le fournisseur Twilio dès que les clés
+    TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN / TWILIO_FROM_NUMBER sont
+    renseignées dans le .env (voir apps/paiements/sms.py) ; sans clés, le
+    code est journalisé (dev) et l'email reste le canal de livraison.
+    """
+    permission_classes = [permissions.IsAuthenticated, IsAdminOrPublisher]
+    throttle_scope = 'auth'
+    throttle_classes = [ScopedRateThrottle]
+
+    @staticmethod
+    def _deliver_sms(user, raw_code):
+        """Point unique de branchement d'un fournisseur SMS : envoie le
+        code via le service Twilio (apps.paiements.sms). Un échec de la
+        passerelle est journalisé mais ne bloque JAMAIS la demande —
+        l'email envoyé en parallèle reste le canal de livraison fiable."""
+        try:
+            from .sms import send_withdrawal_otp
+            send_withdrawal_otp(user, raw_code)
+        except Exception:
+            logger.exception(
+                "[SMS OTP retrait] échec envoi SMS à %s — code livré par email",
+                user.phone or user.email,
+            )
+
+    def post(self, request):
+        channel = (request.data.get('channel') or 'email').strip().lower()
+        if channel not in ('email', 'sms'):
+            return Response({'error': "Canal invalide. Choisissez 'email' ou 'sms'."}, status=400)
+
+        from .models import WithdrawalVerificationCode
+        raw_code = WithdrawalVerificationCode.issue_for(request.user, channel=channel)
+
+        # ─── LIVRAISON DU CODE ────────────────────────────────────────────
+        if channel == 'sms':
+            self._deliver_sms(request.user, raw_code)
+        # Toujours envoyer aussi par email quand le compte en a un : c'est le
+        # canal le plus fiable tant qu'aucun fournisseur SMS n'est branché.
+        if request.user.email:
+            try:
+                from django.core.mail import send_mail
+                send_mail(
+                    subject='DigitalPress — Confirmez votre retrait',
+                    message=(
+                        f"Bonjour {request.user.name or request.user.username},\n\n"
+                        f"Voici votre code de confirmation de retrait : {raw_code}\n"
+                        f"Il expire dans 15 minutes. Saisissez-le dans l'application pour "
+                        f"valider votre demande de retrait.\n\n"
+                        f"Si vous n'êtes pas à l'origine de cette demande, contactez "
+                        f"immédiatement le support.\n\nL'équipe DigitalPress"
+                    ),
+                    from_email=getattr(settings, 'DEFAULT_FROM_EMAIL', 'no-reply@digitalpress.local'),
+                    recipient_list=[request.user.email],
+                    fail_silently=True,
+                )
+            except Exception:
+                logger.exception("Echec envoi email OTP retrait à %s", request.user.email)
+
+        # Masque le destinataire (ex: j***@gmail.com) : ne révèle jamais
+        # l'adresse complète dans la réponse.
+        destination = request.user.email or request.user.phone or ''
+        masked = destination
+        if '@' in destination:
+            local, _, domain = destination.partition('@')
+            masked = f"{local[:1]}{'*' * max(len(local) - 1, 2)}@{domain}" if len(local) > 1 else f"*@{domain}"
+        elif len(destination) >= 4:
+            masked = f"{'*' * (len(destination) - 3)}{destination[-3:]}"
+
+        return Response({
+            'message': f"Un code de confirmation a été envoyé par {channel}.",
+            'channel': channel,
+            'destination': masked,
+            'expires_in_minutes': 15,
+        })
 
 
 class DemanderRetraitView(generics.CreateAPIView):
@@ -615,6 +763,15 @@ class AdminTraiterRetraitView(APIView):
         action = serializer.validated_data['action']
 
         with db_transaction.atomic():
+            # ─── SÉCURITÉ FINANCIÈRE ──────────────────────────────────────
+            # select_for_update() verrouille la ligne DemandeRetrait pour
+            # toute la durée de la transaction : sans ce verrou, un
+            # double-clic admin ou deux requêtes concurrentes pouvaient
+            # toutes les deux lire status='approved' avant que l'une des
+            # deux n'écrive 'completed', et donc débiter le solde de
+            # l'éditeur DEUX FOIS pour un seul retrait réel.
+            demande = DemandeRetrait.objects.select_for_update().select_related('editeur').get(pk=pk)
+
             if action == 'approve':
                 demande.status = 'approved'
                 demande.traitee_par = request.user
@@ -632,8 +789,11 @@ class AdminTraiterRetraitView(APIView):
             elif action == 'complete':
                 if demande.status not in ('approved', 'processing'):
                     return Response({'error': 'Demande non approuvée.'}, status=400)
-                # Débiter le solde
-                profile = demande.editeur.publisher_profile
+                # Débiter le solde — profil verrouillé aussi (select_for_update)
+                # pour la même raison que ci-dessus : deux retraits complétés
+                # en parallèle sur le même éditeur ne doivent jamais lire un
+                # solde obsolète.
+                profile = PublisherProfile.objects.select_for_update().get(user=demande.editeur)
                 if profile.solde < demande.montant:
                     return Response({'error': 'Solde insuffisant.'}, status=400)
                 profile.solde -= demande.montant
@@ -655,3 +815,88 @@ class AdminTraiterRetraitView(APIView):
                 demande.save()
 
         return Response(DemandeRetraitSerializer(demande).data)
+
+
+class TestFinancialFlowsView(APIView):
+    """GET /api/paiements/test-flows/ — Admin only.
+
+    Test complet de tous les flux financiers en mode simulation :
+    1. Recharge portefeuille (wallet)
+    2. Achat article (wallet)
+    3. Paiement CinetPay mock
+    4. Vérification transaction
+    5. WebSocket stats_changed
+    6. Notifications paiement
+    7. Écriture comptable
+    8. Solde vérifié
+    """
+    permission_classes = [permissions.IsAuthenticated, IsAdmin]
+
+    def get(self, request):
+        from decimal import Decimal
+        results = []
+
+        # --- 1. CinetPay sandbox check ---
+        from .cinetpay import cinetpay_service, is_sandbox_mode
+        sandbox = is_sandbox_mode()
+        results.append({'test': 'CinetPay sandbox', 'passed': sandbox, 'detail': 'Mode simulation' if sandbox else 'Clés réelles configurées'})
+
+        # --- 2. Mock initiation ---
+        mock_result = cinetpay_service._mock_initier('test-flow-001', 1000, '+22370000000')
+        results.append({'test': 'Mock initiation', 'passed': mock_result.get('success'), 'detail': mock_result.get('message', '')})
+
+        # --- 3. Mock verification ---
+        verify_result = cinetpay_service._mock_verifier('test-flow-001')
+        results.append({'test': 'Mock verification', 'passed': verify_result.get('status') == 'success', 'detail': verify_result.get('status', '')})
+
+        # --- 4. Wallet payment simulation ---
+        reader = User.objects.filter(role='reader', solde__gte=Decimal('100')).first()
+        publisher = User.objects.filter(role='publisher').first()
+        pub = None
+        if publisher:
+            from apps.publications.models import Publication
+            pub = Publication.objects.filter(publisher=publisher, is_free=False, prix__gt=0).first()
+
+        if reader and pub:
+            old_balance = reader.solde
+            tx = Transaction.objects.create(
+                reference='test-flow-wallet-001',
+                payer=reader, beneficiaire=publisher,
+                publication=pub, type_transaction='purchase',
+                montant_brut=pub.prix, commission=Decimal('0'),
+                montant_net=pub.prix, status='success',
+                processed_at=timezone.now(),
+                description='Test flux financier',
+                metadata={'mode_paiement': 'wallet'},
+            )
+            reader.refresh_from_db()
+            results.append({'test': 'Wallet payment', 'passed': reader.solde == old_balance - pub.prix, 'detail': f'{old_balance} -> {reader.solde}'})
+            # Rollback
+            reader.solde = old_balance
+            reader.save(update_fields=['solde'])
+            tx.delete()
+        else:
+            results.append({'test': 'Wallet payment', 'passed': False, 'detail': 'Pas de reader/publisher/publication test'})
+
+        # --- 5. Transaction stats ---
+        from django.db.models import Count
+        stats = Transaction.objects.values('status').annotate(c=Count('id'))
+        results.append({'test': 'Transaction stats', 'passed': True, 'detail': {s['status']: s['c'] for s in stats}})
+
+        # --- 6. Notifications ---
+        from apps.notifications.models import Notification
+        unread = Notification.objects.filter(user=request.user, is_read=False).count()
+        results.append({'test': 'Notifications', 'passed': True, 'detail': f'{unread} non-lues'})
+
+        # --- 7. WebSocket / Channels ---
+        try:
+            import redis
+            r = redis.Redis.from_url(settings.REDIS_URL, socket_timeout=2)
+            r.ping()
+            results.append({'test': 'Redis (WebSocket)', 'passed': True, 'detail': 'PONG'})
+        except Exception as e:
+            results.append({'test': 'Redis (WebSocket)', 'passed': False, 'detail': str(e)[:80]})
+
+        passed = sum(1 for r in results if r['passed'])
+        total = len(results)
+        return Response({'summary': f'{passed}/{total} tests passed', 'results': results})

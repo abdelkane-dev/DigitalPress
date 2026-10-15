@@ -1,5 +1,5 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:syncfusion_flutter_pdfviewer/pdfviewer.dart';
 import '../../config/api_config.dart';
 import '../../widgets/short_video_player.dart';
@@ -31,8 +31,23 @@ class ArticleDetailScreen extends StatelessWidget {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          // Cover image
-          if ((publication.coverImage as String).isNotEmpty)
+          // Cover video or image
+          if ((publication.videoUrl as String? ?? '').isNotEmpty) ...[
+            Padding(
+              padding: const EdgeInsets.only(bottom: 16),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(18),
+                child: SizedBox(
+                  height: 220,
+                  width: double.infinity,
+                  child: ShortVideoPlayer(
+                    videoUrl: _sanitize(publication.videoUrl as String),
+                    title: "Présentation vidéo",
+                  ),
+                ),
+              ),
+            ),
+          ] else if ((publication.coverImage as String? ?? '').isNotEmpty) ...[
             ClipRRect(
               borderRadius: BorderRadius.circular(18),
               child: CachedNetworkImage(
@@ -51,7 +66,8 @@ class ArticleDetailScreen extends StatelessWidget {
                 errorWidget: (_, __, ___) => const SizedBox.shrink(),
               ),
             ),
-          const SizedBox(height: 16),
+            const SizedBox(height: 16),
+          ],
 
           // Title
           Text(
@@ -160,26 +176,24 @@ class ArticleDetailScreen extends StatelessWidget {
         padding: const EdgeInsets.symmetric(vertical: 12),
         child: ClipRRect(
           borderRadius: BorderRadius.circular(12),
-          child: imageUrl.startsWith('http')
-              ? CachedNetworkImage(
-                  imageUrl: imageUrl,
-                  width: double.infinity,
-                  fit: BoxFit.fitWidth,
-                  placeholder: (_, __) => Container(
-                    height: 150,
-                    width: double.infinity,
-                    color: Colors.grey.shade200,
-                    child: const Center(
-                      child: CircularProgressIndicator(),
-                    ),
-                  ),
-                  errorWidget: (_, __, ___) =>
-                      _mediaMissing('Image non disponible'))
-              : Image.file(File(imageUrl),
-                  width: double.infinity,
-                  fit: BoxFit.fitWidth,
-                  errorBuilder: (_, __, ___) =>
-                      _mediaMissing('Image locale non disponible')),
+          child: Image.network(
+            imageUrl,
+            width: double.infinity,
+            fit: BoxFit.fitWidth,
+            loadingBuilder: (_, child, progress) {
+              if (progress == null) return child;
+              return Container(
+                height: 150,
+                width: double.infinity,
+                color: Colors.grey.shade200,
+                child: const Center(
+                  child: CircularProgressIndicator(),
+                ),
+              );
+            },
+            errorBuilder: (_, __, ___) =>
+                _mediaMissing('Image non disponible'),
+          ),
         ),
       );
     }
@@ -189,7 +203,7 @@ class ArticleDetailScreen extends StatelessWidget {
     // ── 2. VIDEO ───────────────────────────────────────────────
     final isVideoPrefix = trimmed.contains('🎬') || trimmed.contains('🎥');
     final isVideoExtension =
-        RegExp(r'\.(mp4|avi|mov|mkv|webm)(\?|$)').hasMatch(trimmed);
+        RegExp(r'\.(mp4|avi|mov|mkv|webm)(\?|$)', caseSensitive: false).hasMatch(trimmed);
     if (simpleLinkMatch != null && (isVideoPrefix || isVideoExtension)) {
       final videoTitle = simpleLinkMatch.group(1) ?? 'Vidéo';
       final videoUrl = _sanitize(simpleLinkMatch.group(2) ?? '');
@@ -217,7 +231,7 @@ class ArticleDetailScreen extends StatelessWidget {
     // ── 3. PDF ────────────────────────────────────────────────
     final isPdfPrefix =
         trimmed.contains('📄') || trimmed.contains('📕') || trimmed.contains('PDF');
-    final isPdfExtension = RegExp(r'\.(pdf)(\?|$)').hasMatch(trimmed);
+    final isPdfExtension = RegExp(r'\.(pdf)(\?|$)', caseSensitive: false).hasMatch(trimmed);
     if (simpleLinkMatch != null && (isPdfPrefix || isPdfExtension)) {
       final pdfTitle = simpleLinkMatch.group(1) ?? 'Document PDF';
       final pdfUrl = _sanitize(simpleLinkMatch.group(2) ?? '');

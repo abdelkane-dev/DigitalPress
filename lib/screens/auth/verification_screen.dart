@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../../core/exceptions/failures.dart';
 import '../../core/services/auth_service.dart';
 
 class VerificationScreen extends ConsumerStatefulWidget {
@@ -26,6 +27,8 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
     (_) => TextEditingController(),
   );
   final List<FocusNode> _focusNodes = List.generate(6, (_) => FocusNode());
+  final TextEditingController _passwordController = TextEditingController();
+  bool _obscurePassword = true;
   bool _isLoading = false;
   int _resendTimer = 60;
   Timer? _timer;
@@ -39,6 +42,7 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
   @override
   void dispose() {
     _timer?.cancel();
+    _passwordController.dispose();
     for (var controller in _controllers) {
       controller.dispose();
     }
@@ -58,6 +62,8 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
     });
   }
 
+  bool get _isActivation => widget.mode == 'activate';
+
   Future<void> _verify() async {
     final code = _controllers.map((c) => c.text).join();
     if (code.length != 6) {
@@ -68,12 +74,30 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
     setState(() => _isLoading = true);
 
     try {
-      await ref.read(authServiceProvider).verifyCode(widget.email, code);
+      final auth = ref.read(authServiceProvider);
+      if (_isActivation) {
+        final pwd = _passwordController.text.trim();
+        await auth.verifyEmail(
+          widget.email,
+          code,
+          password: pwd.isNotEmpty ? pwd : null,
+        );
+      } else {
+        // Réinitialisation de mot de passe (code 10 min).
+        await auth.verifyCode(widget.email, code);
+      }
 
       if (mounted) {
         _showSnackBar('Code vérifié avec succès !', isError: false);
-        await Future.delayed(const Duration(milliseconds: 800));
-        if (mounted) {
+        await Future.delayed(const Duration(milliseconds: 600));
+        if (!mounted) return;
+        if (_isActivation) {
+          if (auth.currentUser != null) {
+            context.go('/');
+          } else {
+            context.go('/auth/login');
+          }
+        } else {
           context.pushReplacement(
             '/auth/reset-password'
             '?email=${Uri.encodeComponent(widget.email)}'
@@ -83,7 +107,8 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
       }
     } catch (e) {
       if (mounted) {
-        _showSnackBar('Code invalide: ${e.toString()}', isError: true);
+        final msg = e is Failure ? e.message : e.toString().replaceAll('Exception: ', '').trim();
+        _showSnackBar(msg, isError: true);
       }
     } finally {
       if (mounted) {
@@ -101,7 +126,12 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
     });
 
     try {
-      await ref.read(authServiceProvider).resendVerificationCode(widget.email);
+      final auth = ref.read(authServiceProvider);
+      if (_isActivation) {
+        await auth.resendEmailVerificationCode(widget.email);
+      } else {
+        await auth.resendVerificationCode(widget.email);
+      }
 
       if (mounted) {
         _showSnackBar('Code renvoyé avec succès', isError: false);
@@ -109,7 +139,8 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
       }
     } catch (e) {
       if (mounted) {
-        _showSnackBar('Erreur: ${e.toString()}', isError: true);
+        final msg = e is Failure ? e.message : e.toString().replaceAll('Exception: ', '').trim();
+        _showSnackBar(msg, isError: true);
       }
     } finally {
       if (mounted) {
@@ -169,9 +200,13 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
                     children: [
                       const SizedBox(height: 20),
                       _buildHeader(),
-                      const SizedBox(height: 40),
-                      _buildCodeInputCard(),
                       const SizedBox(height: 32),
+                      _buildCodeInputCard(),
+                      if (_isActivation) ...[
+                        const SizedBox(height: 20),
+                        _buildPasswordCard(),
+                      ],
+                      const SizedBox(height: 28),
                       _buildVerifyButton(),
                       const SizedBox(height: 24),
                       _buildResendButton(),
@@ -234,10 +269,10 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
           ),
         ),
         const SizedBox(height: 24),
-        const Text(
-          'Vérification',
+        Text(
+          _isActivation ? 'Activez votre compte' : 'Vérification',
           style: TextStyle(
-            fontSize: 32,
+            fontSize: _isActivation ? 26 : 32,
             fontWeight: FontWeight.w900,
             color: Colors.white,
             letterSpacing: -0.5,
@@ -245,7 +280,9 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
         ),
         const SizedBox(height: 8),
         Text(
-          'Entrez le code envoyé à',
+          _isActivation
+              ? 'Entrez le code d\'activation envoyé à'
+              : 'Entrez le code envoyé à',
           style: TextStyle(
             fontSize: 16,
             // ignore: deprecated_member_use
@@ -270,6 +307,18 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
             ),
           ),
         ),
+        if (_isActivation) ...[
+          const SizedBox(height: 12),
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 12),
+            child: Text(
+              'Le code expire dans 15 minutes. Vérifiez votre boîte mail '
+              '(pensez aux courriers indésirables).',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.white70, fontSize: 13, height: 1.4),
+            ),
+          ),
+        ],
       ],
     );
   }
@@ -352,6 +401,74 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
     );
   }
 
+  Widget _buildPasswordCard() {
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withAlpha(20),
+            blurRadius: 20,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Icon(Icons.lock_outline_rounded, color: Color(0xFF2C74B3), size: 20),
+              SizedBox(width: 8),
+              Text(
+                'Créer un mot de passe',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF0A2647),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          TextFormField(
+            controller: _passwordController,
+            obscureText: _obscurePassword,
+            decoration: InputDecoration(
+              hintText: 'Définir votre mot de passe',
+              hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 13),
+              filled: true,
+              fillColor: const Color(0xFFF8FAFC),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(color: Colors.grey.shade200),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(color: Colors.grey.shade200),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: Color(0xFF2C74B3), width: 1.5),
+              ),
+              suffixIcon: IconButton(
+                icon: Icon(
+                  _obscurePassword ? Icons.visibility_off_outlined : Icons.visibility_outlined,
+                  color: Colors.grey.shade600,
+                  size: 20,
+                ),
+                onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildVerifyButton() {
     return Container(
       width: double.infinity,
@@ -389,9 +506,9 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
                   strokeWidth: 2.5,
                 ),
               )
-            : const Text(
-                'Vérifier',
-                style: TextStyle(
+            : Text(
+                _isActivation ? 'Valider et Continuer' : 'Vérifier',
+                style: const TextStyle(
                   fontSize: 17,
                   fontWeight: FontWeight.w700,
                   letterSpacing: 0.5,

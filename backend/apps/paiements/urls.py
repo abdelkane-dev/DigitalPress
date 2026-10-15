@@ -2,16 +2,19 @@ from django.urls import path
 from .views import (
     InitierPaiementView, VerifierPaiementView, WebhookView,
     MesTransactionsView, AdminTransactionsView,
-    DemanderRetraitView, MesDemandesRetraitView,
+    DemanderRetraitView, MesDemandesRetraitView, WithdrawalOtpView,
     AdminDemandesRetraitView, AdminTraiterRetraitView,
+    TestFinancialFlowsView,
 )
 
 urlpatterns = [
+    path('test-flows/', TestFinancialFlowsView.as_view(), name='test_financial_flows'),
     path('initier/', InitierPaiementView.as_view(), name='initier_paiement'),
     path('verifier/', VerifierPaiementView.as_view(), name='verifier_paiement'),
     path('webhook/', WebhookView.as_view(), name='webhook'),
     path('transactions/', MesTransactionsView.as_view(), name='mes_transactions'),
     path('admin/transactions/', AdminTransactionsView.as_view(), name='admin_transactions'),
+    path('retrait/otp/', WithdrawalOtpView.as_view(), name='withdrawal_otp'),
     path('retrait/demander/', DemanderRetraitView.as_view(), name='demander_retrait'),
     path('retrait/mes-demandes/', MesDemandesRetraitView.as_view(), name='mes_demandes_retrait'),
     path('admin/retraits/', AdminDemandesRetraitView.as_view(), name='admin_retraits'),

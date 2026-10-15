@@ -1,12 +1,19 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart'
+    show HapticFeedback, SystemSound, SystemSoundType;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:web_socket_channel/web_socket_channel.dart';
 import '../api/api_client.dart';
 import '../storage/secure_storage_service.dart';
 import 'package:logger/logger.dart';
 import '../exceptions/failures.dart';
 import './auth_service.dart';
 import '../../model/user.dart';
+import '../../config/api_config.dart';
+
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Modèle
@@ -61,7 +68,7 @@ class AppNotification {
     );
   }
 
-  /// Retourne l'icône et la couleur correspondant au type de notification.
+  /// Retourne l'icône correspondant au type de notification.
   IconData get icon {
     switch (typeNotif) {
       case 'payment_success':
@@ -79,6 +86,10 @@ class AppNotification {
         return Icons.money_off_rounded;
       case 'new_publication':
         return Icons.fiber_new_rounded;
+      case 'verification_reviewed':
+        return Icons.verified_rounded;
+      case 'verification_submitted':
+        return Icons.pending_actions_rounded;
       case 'system':
       default:
         return Icons.notifications_rounded;
@@ -91,6 +102,7 @@ class AppNotification {
       case 'subscription_activated':
       case 'withdrawal_approved':
       case 'withdrawal_completed':
+      case 'verification_reviewed':
         return const Color(0xFF10B981);
       case 'payment_failed':
       case 'subscription_expired':
@@ -98,6 +110,8 @@ class AppNotification {
         return const Color(0xFFEF4444);
       case 'new_publication':
         return const Color(0xFF2C74B3);
+      case 'verification_submitted':
+        return const Color(0xFFF59E0B);
       case 'system':
       default:
         return const Color(0xFF8B5CF6);
@@ -115,42 +129,151 @@ class NotificationsNotifier
   final Ref _ref;
   final _logger = Logger();
   Timer? _pollingTimer;
+  WebSocketChannel? _wsChannel;
+  StreamSubscription? _wsSubscription;
+  Timer? _wsReconnectTimer;
+  int _pingSeq = 0;
   int _consecutiveNetworkErrors = 0;
   static const int _maxNetworkErrorRetries = 3;
+  /// Garde contre les doubles initialisations lors d'émissions redondantes
+  /// de authStateProvider.
+  bool _initialized = false;
 
   NotificationsNotifier(this._api, this._ref)
       : super(const AsyncValue.loading()) {
     // Écoute les changements d'état d'authentification pour démarrer/arrêter
-    // le polling des notifications lorsque l'utilisateur se connecte/déconnecte.
-    // `fireImmediately: true` permet d'utiliser l'état d'auth initial sans
-    // démarrer le polling avant que l'auth ne soit résolu.
+    // le WebSocket temps réel (+ le polling de secours) lorsque
+    // l'utilisateur se connecte/déconnecte.
     _ref.listen<AsyncValue<User?>>(authStateProvider, (prev, next) {
       final user = next.asData?.value;
       if (user != null) {
-        _initialize();
+        if (!_initialized) _initialize();
       } else {
+        _initialized = false;
         _pollingTimer?.cancel();
+        _disconnectWebSocket();
         state = const AsyncValue.data([]);
       }
     }, fireImmediately: true);
   }
 
   Future<void> _initialize() async {
+    _initialized = true;
     final token = await _ref.read(secureStorageServiceProvider).getToken();
     _logger.i(
         'NotificationsNotifier._initialize token present=${token != null && token.isNotEmpty}');
     if (token == null || token.isEmpty) {
+      _initialized = false;
       _logger.i('No token found — notifications polling will not start');
       state = const AsyncValue.data([]);
       return;
     }
-    _logger.i('Token found — performing initial load and starting polling');
+    _logger.i('Token found — performing initial load, connecting WebSocket');
     load();
+    _connectWebSocket(token);
+    // Le polling est un filet de secours derrière le WebSocket.
+    // Intervalle de 60s pour minimiser les requêtes réseau superflues.
     _startPolling();
+  }
+
+  /// Notifications en temps réel : dès qu'une Notification est créée côté
+  /// backend, elle arrive ici instantanément via WebSocket.
+  void _connectWebSocket(String token) {
+    _disconnectWebSocket();
+    final base = ApiConfig.wsBaseUrl;
+    if (base.isEmpty) return;
+
+    try {
+      final uri = Uri.parse('$base/ws/notifications/?token=$token');
+      _wsChannel = WebSocketChannel.connect(uri);
+      _wsChannel!.ready.catchError((e) {
+        _logger.w('WebSocket notifications non disponible ($e)');
+      });
+      _wsSubscription = _wsChannel!.stream.listen(
+        (raw) {
+          try {
+            final json = jsonDecode(raw as String) ;
+            if (json.containsKey('id') && json.containsKey('title')) {
+              // Vraie Notification persistée en base.
+              final notif = AppNotification.fromJson(json);
+              var isNew = false;
+              state.whenData((list) {
+                if (list.any((n) => n.id == notif.id)) return;
+                isNew = true;
+                state = AsyncValue.data([notif, ...list]);
+              });
+              // Alerte temps réel (vibration + son) pour une notification
+              // qui vient d'arriver (demande explicite, façon WhatsApp).
+              if (isNew) _playRealtimeAlert();
+              // ─── SYNCHRO TEMPS RÉEL DU PROFIL ────────────────────────
+              // Toute notification = le profil a changé quelque part
+              // (vérification, palier, solde, retrait, stats, mot de passe,
+              // infos perso/éditeur...) : on rafraîchit le profil à chaque
+              // notification reçue pour que les infos perso et le profil
+              // éditeur restent synchronisés en temps réel, sans avoir à se
+              // déconnecter/reconnecter.
+              _ref.read(authServiceProvider).refreshProfile();
+            } else if (json.containsKey('event')) {
+              // Événement temps réel générique (favoris, stats...).
+              _pingSeq++;
+              _ref.read(realtimeEventProvider.notifier).state =
+                  RealtimeEvent(json['event'] as String, json, _pingSeq);
+              if (json['event'] == 'stats_changed') {
+                // Alerte temps réel : un paiement/revenu vient d'arriver
+                // (demande explicite : son + vibration, façon WhatsApp).
+                _playRealtimeAlert();
+                _ref.read(authServiceProvider).refreshProfile();
+              }
+            }
+          } catch (e) {
+            _logger.w('Message WebSocket notifications illisible : $e');
+          }
+        },
+        onError: (e) {
+          _logger.w('Erreur WebSocket notifications : $e — reconnexion différée');
+          _scheduleWebSocketReconnect(token);
+        },
+        onDone: () {
+          _logger.i('WebSocket notifications fermé — reconnexion différée');
+          _scheduleWebSocketReconnect(token);
+        },
+        cancelOnError: true,
+      );
+    } catch (e) {
+      _logger.w('Impossible de se connecter au WebSocket notifications : $e');
+      _scheduleWebSocketReconnect(token);
+    }
+  }
+
+  void _scheduleWebSocketReconnect(String token) {
+    _wsReconnectTimer?.cancel();
+    _wsReconnectTimer = Timer(const Duration(seconds: 10), () {
+      _connectWebSocket(token);
+    });
+  }
+
+  void _disconnectWebSocket() {
+    _wsReconnectTimer?.cancel();
+    _wsSubscription?.cancel();
+    _wsChannel?.sink.close();
+    _wsChannel = null;
+  }
+
+  /// Alerte « façon WhatsApp » : petite vibration + son bref, jouée UNIQUEMENT
+  /// quand un événement temps réel arrive via WebSocket (nouvelle notification
+  /// ou stats_changed) — jamais pendant le polling de secours. Silencieuse en
+  /// cas d'échec (confort, jamais une fatalité).
+  void _playRealtimeAlert() {
+    try {
+      HapticFeedback.heavyImpact();
+      SystemSound.play(SystemSoundType.alert);
+    } catch (_) {}
   }
 
   void _startPolling() {
     _pollingTimer?.cancel();
+    // Filet de secours derrière le WebSocket.
+    // 60 secondes pour minimiser les requêtes réseau superflues.
     _pollingTimer = Timer.periodic(const Duration(seconds: 60), (_) {
       load(isBackground: true);
     });
@@ -167,7 +290,7 @@ class NotificationsNotifier
     if (!isBackground) {
       state = const AsyncValue.loading();
     }
-    
+
     try {
       final response = await _api.get('notifications/');
       _consecutiveNetworkErrors = 0;
@@ -175,14 +298,13 @@ class NotificationsNotifier
           ? (response.data['results'] as List? ?? [])
           : (response.data as List? ?? []);
       final list = raw
-          .map((j) => AppNotification.fromJson(j as Map<String, dynamic>))
+          .map((j) => AppNotification.fromJson(j ))
           .toList();
       state = AsyncValue.data(list);
     } catch (e, st) {
       _logger.e('Erreur chargement notifications : $e');
       if (e is AuthFailure) {
         _logger.w('AuthFailure received — stopping notifications polling');
-        // Session expirée ou token invalide : arrêter le polling et vider la liste.
         _pollingTimer?.cancel();
         state = const AsyncValue.data([]);
         return;
@@ -225,6 +347,28 @@ class NotificationsNotifier
     }
   }
 
+  /// Supprime une notification côté serveur puis localement.
+  Future<void> deleteNotification(int id) async {
+    try {
+      await _api.delete('notifications/$id/');
+    } catch (e) {
+      _logger.e('Erreur suppression notification $id : $e');
+    }
+    state.whenData((list) {
+      state = AsyncValue.data(list.where((n) => n.id != id).toList());
+    });
+  }
+
+  /// Supprime TOUTES les notifications de l'utilisateur (mise à zéro).
+  Future<void> clearAllNotifications() async {
+    try {
+      await _api.delete('notifications/delete-all/');
+    } catch (e) {
+      _logger.e('Erreur suppression de toutes les notifications : $e');
+    }
+    state = const AsyncValue.data([]);
+  }
+
   void removeLocally(int id) {
     state.whenData((list) {
       state = AsyncValue.data(list.where((n) => n.id != id).toList());
@@ -234,6 +378,7 @@ class NotificationsNotifier
   @override
   void dispose() {
     _pollingTimer?.cancel();
+    _disconnectWebSocket();
     super.dispose();
   }
 }
@@ -241,6 +386,20 @@ class NotificationsNotifier
 // ─────────────────────────────────────────────────────────────────────────────
 // Provider
 // ─────────────────────────────────────────────────────────────────────────────
+
+/// Bus d'événements temps réel générique (favoris, statistiques...), pour
+/// tout ce qui n'est PAS une Notification persistée en base. Alimenté par
+/// NotificationsNotifier dès qu'un message WebSocket de type "ping" arrive.
+/// D'autres providers s'y abonnent avec `ref.listen` pour se recharger
+/// automatiquement.
+class RealtimeEvent {
+  final String event;
+  final Map<String, dynamic> data;
+  final int seq; // incrémente à chaque événement, même si `event` se répète
+  const RealtimeEvent(this.event, this.data, this.seq);
+}
+
+final realtimeEventProvider = StateProvider<RealtimeEvent?>((ref) => null);
 
 final appNotificationsProvider = StateNotifierProvider<NotificationsNotifier,
     AsyncValue<List<AppNotification>>>((ref) {

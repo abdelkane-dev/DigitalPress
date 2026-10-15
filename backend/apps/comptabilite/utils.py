@@ -17,7 +17,7 @@ def _gen_ref():
 def enregistrer_ecriture(transaction):
     """
     Enregistre une écriture comptable à partir d'une Transaction validée.
-    Appelé automatiquement après confirmation Movapay.
+    Appelé automatiquement après confirmation CinetPay.
     """
     from .models import EcritureComptable
 
@@ -32,6 +32,9 @@ def enregistrer_ecriture(transaction):
         'withdrawal': 'retrait',
         'commission': 'commission',
         'refund': 'remboursement',
+        # Les mises en avant « À la une » sont une recette de la plateforme
+        # (la plateforme perçoit 100 % du montant — publicité, pas vente).
+        'featured': 'recette',
     }
 
     # Écriture principale (montant brut)
@@ -71,6 +74,12 @@ def enregistrer_ecriture(transaction):
             periode_mois=now.month,
             periode_annee=now.year,
         )
+
+    # Une vente ('recette') peut faire franchir un seuil de palier à
+    # l'éditeur bénéficiaire (voir apps.abonnements.services.sync_publisher_tier).
+    if ecriture.type_ecriture == 'recette' and ecriture.editeur:
+        from apps.abonnements.services import sync_publisher_tier
+        sync_publisher_tier(ecriture.editeur)
 
     return ecriture
 
@@ -162,7 +171,7 @@ def export_transactions_csv(queryset) -> str:
     writer.writerow([
         'Référence', 'Date', 'Type', 'Payeur', 'Bénéficiaire',
         'Publication', 'Montant Brut', 'Commission', 'Montant Net',
-        'Devise', 'Statut', 'Réf Movapay',
+        'Devise', 'Statut', 'Réf CinetPay',
     ])
     for t in queryset:
         writer.writerow([
@@ -177,7 +186,7 @@ def export_transactions_csv(queryset) -> str:
             str(t.montant_net),
             t.devise,
             t.get_status_display(),
-            t.movapay_ref,
+            t.cinetpay_ref,
         ])
     return output.getvalue()
 
@@ -212,6 +221,17 @@ def get_dashboard_stats() -> dict:
         type_transaction='withdrawal', status='success'
     ).aggregate(t=Sum('montant_brut'))['t'] or 0
 
+    # ─── REVENUS DES MISES EN AVANT « À LA UNE » ────────────────────────
+    # Recette publicitaire de la plateforme (100 % plateforme) : comptée à
+    # part dans la comptabilité pour être identifiable, tout en restant
+    # incluse dans le chiffre d'affaires brut total ci-dessus.
+    featured_revenue = Transaction.objects.filter(
+        type_transaction='featured', status='success'
+    ).aggregate(t=Sum('montant_brut'))['t'] or 0
+    featured_count = Transaction.objects.filter(
+        type_transaction='featured', status='success'
+    ).count()
+
     return {
         'total_users': User.objects.count(),
         'total_publishers': User.objects.filter(role='publisher').count(),
@@ -231,4 +251,6 @@ def get_dashboard_stats() -> dict:
         'commissions_collectees': str(total_commission),
         'retraits_valides': str(total_withdrawals),
         'nb_transactions_success': tx_success.count(),
+        'featured_revenue': str(featured_revenue),
+        'featured_count': featured_count,
     }

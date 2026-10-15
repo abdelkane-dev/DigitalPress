@@ -37,7 +37,7 @@ class EcritureComptable(models.Model):
     # empêchait donc, à chaque paiement avec commission, la validation
     # réelle du paiement : le statut restait "pending", le solde de
     # l'éditeur n'était jamais crédité et l'abonnement jamais activé,
-    # bien que Movapay ait confirmé le paiement avec succès.
+    # bien que CinetPay ait confirmé le paiement avec succès.
     transaction = models.ForeignKey(
         'paiements.Transaction', on_delete=models.SET_NULL,
         null=True, blank=True, related_name='ecritures'

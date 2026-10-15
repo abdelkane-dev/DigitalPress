@@ -219,6 +219,45 @@ class AdminExportTransactionsView(APIView):
         return response
 
 
+def effective_commission_rate(user):
+    """Taux de commission RÉELLEMENT appliqué à un éditeur : celui de son
+    palier plateforme actif (Basique/Standard/Premium), ou le taux du profil
+    en l'absence de palier. Même logique que dans InitierPaiement — l'app
+    affiche partout le même taux que celui facturé sur les transactions.
+    """
+    from apps.accounts.models import PublisherProfile
+    profile, _ = PublisherProfile.objects.get_or_create(
+        user=user,
+        defaults={'company_name': user.name or user.username},
+    )
+    rate = profile.commission_rate
+    active_sub = user.platform_subscriptions.filter(
+        status='active'
+    ).select_related('plan').first()
+    if active_sub and active_sub.plan:
+        rate = active_sub.plan.commission_rate
+    return rate
+
+
+class AdminRemboursementsView(APIView):
+    """GET /api/admin/comptabilite/remboursements/
+
+    Vue ADMIN des remboursements : TOUS les comptes de la plateforme, avec
+    le client remboursé, le bénéficiaire et la publication concernée — la
+    vue change selon le type de compte (demande explicite : « la vue de
+    remboursement change selon le type de compte »).
+    """
+    permission_classes = [permissions.IsAuthenticated, IsAdmin]
+
+    def get(self, request):
+        from apps.paiements.models import Transaction
+        from apps.paiements.serializers import TransactionSerializer
+        qs = Transaction.objects.filter(status='refunded').select_related(
+            'payer', 'beneficiaire', 'publication'
+        ).order_by('-processed_at', '-created_at')
+        return Response(TransactionSerializer(qs, many=True).data)
+
+
 class AdminSoldesEditeursView(APIView):
     permission_classes = [permissions.IsAuthenticated, IsAdmin]
 
@@ -233,16 +272,44 @@ class AdminSoldesEditeursView(APIView):
                 'company_name': p.company_name,
                 'solde': str(p.solde),
                 'total_earned': str(p.total_earned),
-                'commission_rate': str(p.commission_rate),
+                # Taux effectif du palier actif (même valeur que celle
+                # appliquée sur les transactions de cet éditeur).
+                'commission_rate': str(effective_commission_rate(p.user)),
             })
         return Response(data)
 
 
 # ─── ÉDITEUR ──────────────────────────────────────────────────────────────────
 
+class EditeurRemboursementsView(APIView):
+    """GET /api/entreprise/comptabilite/remboursements/
+
+    Vue ÉDITEUR des remboursements : uniquement les transactions remboursées
+    qui le concernent, avec le « sens » côté éditeur :
+      • 'recu'  — l'éditeur (ou sa publication) était le payeur : l'argent
+                  lui a été recrédité (remboursement reçu) ;
+      • 'vente' — une de ses ventes a été remboursée : le revenu/commission
+                  correspondant a été annulé (reversement retiré).
+    """
+    permission_classes = [permissions.IsAuthenticated, (IsPublisher | IsAdmin)]
+
+    def get(self, request):
+        from apps.paiements.models import Transaction
+        from apps.paiements.serializers import TransactionSerializer
+        qs = Transaction.objects.filter(
+            Q(payer=request.user) | Q(beneficiaire=request.user),
+            status='refunded',
+        ).select_related('payer', 'beneficiaire', 'publication')
+
+        data = TransactionSerializer(qs, many=True).data
+        for item in data:
+            item['sens'] = 'vente' if item.get('beneficiaire') == request.user.id else 'recu'
+        return Response(data)
+
+
 class EditeurJournalView(generics.ListAPIView):
     serializer_class = EcritureComptableSerializer
-    permission_classes = [permissions.IsAuthenticated, IsPublisher]
+    permission_classes = [permissions.IsAuthenticated, (IsPublisher | IsAdmin)]
 
     def get_queryset(self):
         qs = EcritureComptable.objects.filter(
@@ -261,7 +328,7 @@ class EditeurJournalView(generics.ListAPIView):
 
 
 class EditeurSoldeView(APIView):
-    permission_classes = [permissions.IsAuthenticated, IsPublisher]
+    permission_classes = [permissions.IsAuthenticated, (IsPublisher | IsAdmin)]
 
     def get(self, request):
         from apps.paiements.models import Transaction, DemandeRetrait
@@ -288,6 +355,13 @@ class EditeurSoldeView(APIView):
             editeur=request.user, status__in=['pending', 'approved', 'processing']
         ).aggregate(total=Sum('montant'))['total'] or 0
 
+        # Dépenses de mise en avant « À la une » (publicité payée par
+        # l'éditeur à la plateforme — apparaît dans la comptabilité éditeur
+        # comme une charge, dans celle de la plateforme comme une recette).
+        featured_spent = Transaction.objects.filter(
+            payer=request.user, type_transaction='featured', status='success'
+        ).aggregate(total=Sum('montant_brut'))['total'] or 0
+
         return Response({
             'solde_disponible': str(profile.solde),
             'total_earned': str(profile.total_earned),
@@ -295,12 +369,15 @@ class EditeurSoldeView(APIView):
             'total_commissions_deduites': str(commissions),
             'total_retraits_effectues': str(retraits),
             'retraits_en_attente': str(pending_retraits),
-            'commission_rate': str(profile.commission_rate),
+            # Taux effectif du palier actif — l'éditeur voit le même
+            # pourcentage que celui facturé sur ses ventes.
+            'commission_rate': str(effective_commission_rate(request.user)),
+            'total_featured_spent': str(featured_spent),
         })
 
 
 class EditeurHistoriqueTransactionsView(generics.ListAPIView):
-    permission_classes = [permissions.IsAuthenticated, IsPublisher]
+    permission_classes = [permissions.IsAuthenticated, (IsPublisher | IsAdmin)]
 
     def list(self, request, *args, **kwargs):
         from apps.paiements.models import Transaction
@@ -321,7 +398,7 @@ class EditeurHistoriqueTransactionsView(generics.ListAPIView):
 
 
 class EditeurExportView(APIView):
-    permission_classes = [permissions.IsAuthenticated, IsPublisher]
+    permission_classes = [permissions.IsAuthenticated, (IsPublisher | IsAdmin)]
 
     def get(self, request):
         qs = EcritureComptable.objects.filter(
@@ -342,7 +419,7 @@ class EditeurExportView(APIView):
 
 
 class EditeurStatsVentesView(APIView):
-    permission_classes = [permissions.IsAuthenticated, IsPublisher]
+    permission_classes = [permissions.IsAuthenticated, (IsPublisher | IsAdmin)]
 
     def get(self, request):
         from apps.paiements.models import Transaction

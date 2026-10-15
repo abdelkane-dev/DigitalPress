@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import '../../core/api/api_client.dart';
+import '../../core/services/app_notification_service.dart';
+import 'admin_user_detail_screen.dart';
 
 /// Gestion globale des comptes utilisateurs par un administrateur :
 /// lecteurs, éditeurs et autres admins. Permet de rechercher, filtrer par
@@ -28,6 +31,9 @@ class _ManageUsersScreenState extends ConsumerState<ManageUsersScreen> {
   void initState() {
     super.initState();
     _load();
+    ref.listenManual(realtimeEventProvider, (previous, next) {
+      if (next != null) _load();
+    });
   }
 
   @override
@@ -52,7 +58,7 @@ class _ManageUsersScreenState extends ConsumerState<ManageUsersScreen> {
       final raw = response.data is Map
           ? (response.data['results'] as List? ?? [])
           : (response.data as List? ?? []);
-      _users = raw.cast<Map<String, dynamic>>();
+      _users = raw.map((e) => e is Map ? Map<String, dynamic>.from(e) : <String, dynamic>{}).toList();
     } catch (e) {
       _error = e.toString();
     } finally {
@@ -222,7 +228,15 @@ class _ManageUsersScreenState extends ConsumerState<ManageUsersScreen> {
                                   final user = _users[index];
                                   final isActive = user['is_active'] != false;
                                   final role = user['role']?.toString();
-                                  return Container(
+                                  // ─── TAP SUR UN UTILISATEUR (demande explicite) ──
+                                  // Ouvre la page de détail complète (identité,
+                                  // achats, statut, historique, actions Suspendre /
+                                  // Bannir / Réactiver).
+                                  return InkWell(
+                                    onTap: () => context.push(
+                                        '/admin/user/${user['id']}'),
+                                    borderRadius: BorderRadius.circular(14),
+                                    child: Container(
                                     padding: const EdgeInsets.all(14),
                                     decoration: BoxDecoration(
                                       color: Colors.white,
@@ -302,6 +316,7 @@ class _ManageUsersScreenState extends ConsumerState<ManageUsersScreen> {
                                         ),
                                       ],
                                     ),
+                                  ),
                                   );
                                 },
                               ),

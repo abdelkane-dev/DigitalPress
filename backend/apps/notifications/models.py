@@ -14,6 +14,8 @@ class Notification(models.Model):
         ('new_publication', 'Nouvelle publication'),
         ('new_comment', 'Nouveau commentaire'),
         ('new_reply', 'Nouvelle réponse'),
+        ('verification_submitted', 'Vérification éditeur soumise'),
+        ('verification_reviewed', 'Vérification éditeur traitée'),
         ('system', 'Système'),
     ]
 

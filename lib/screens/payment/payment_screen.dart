@@ -2,6 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/services/payment_service.dart';
+import '../../core/services/auth_service.dart';
+import '../../core/services/publication_service.dart';
+import '../../core/utils/friendly_error.dart';
+import '../reader/reader_screen.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Formatter : espace tous les 4 chiffres → XXXX XXXX XXXX XXXX
@@ -228,7 +232,6 @@ class PaymentScreen extends ConsumerStatefulWidget {
   final String paymentMethodName;
   final int? abonnementId;
   final bool isSubscription;
-  final bool isResellRight;
   final bool isRecharge;
 
   const PaymentScreen({
@@ -240,7 +243,6 @@ class PaymentScreen extends ConsumerStatefulWidget {
     required this.paymentMethodName,
     this.abonnementId,
     this.isSubscription = false,
-    this.isResellRight = false,
     this.isRecharge = false,
   });
 
@@ -249,6 +251,9 @@ class PaymentScreen extends ConsumerStatefulWidget {
 }
 
 class _PaymentScreenState extends ConsumerState<PaymentScreen> {
+  /// Évite une double navigation (clic sur le bouton + timer automatique)
+  /// vers le lecteur après un achat réussi.
+  bool _autoOpenedReader = false;
   final _formKey = GlobalKey<FormState>();
 
   // Mobile Money
@@ -312,8 +317,6 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
         return const Color(0xFF8B5CF6);
       case PaymentMethodType.stripe:
         return const Color(0xFF635BFF);
-      case PaymentMethodType.simulation:
-        return Colors.green.shade600;
     }
   }
 
@@ -328,8 +331,6 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
         return Icons.account_balance_wallet_rounded;
       case PaymentMethodType.stripe:
         return Icons.credit_card_rounded;
-      case PaymentMethodType.simulation:
-        return Icons.bug_report_rounded;
     }
   }
 
@@ -931,7 +932,7 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
     );
   }
 
-  // ── Carte bancaire (Stripe) ───────────────────────────────────────────────
+  // ── Carte bancaire (CinetPay) ────────────────────────────────────────────
 
   Widget _buildCardForm() {
     return Column(
@@ -1082,7 +1083,7 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
         ),
         const SizedBox(height: 16),
         _buildInfoBanner(
-          'Paiement sécurisé via Stripe. Vos données de carte ne sont jamais stockées sur nos serveurs.',
+          'Paiement sécurisé via CinetPay. Vos données de carte ne sont jamais stockées sur nos serveurs.',
           const Color(0xFF635BFF),
         ),
       ],
@@ -1284,7 +1285,6 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
             amount: widget.price,
             method: widget.paymentMethod,
             isSubscription: widget.isSubscription,
-            isResellRight: widget.isResellRight,
             isRecharge: widget.isRecharge,
           );
 
@@ -1308,7 +1308,7 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Erreur : ${e.toString()}'),
+          content: Text(friendlyError(e)),
           backgroundColor: Colors.red,
           behavior: SnackBarBehavior.floating,
           shape:
@@ -1337,11 +1337,33 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
     );
   }
 
+  /// Ouvre directement le lecteur de l'article acheté (demande explicite :
+  /// « une fois un article acheté on rentre directement dans l'article »).
+  /// Remplace l'écran de paiement par le lecteur, sans clic supplémentaire.
+  void _openPurchasedArticle() {
+    if (_autoOpenedReader || widget.isRecharge || widget.journalId == null) {
+      return;
+    }
+    _autoOpenedReader = true;
+    try {
+      ref.read(authServiceProvider).refreshProfile();
+      ref.read(publicationListProvider.notifier).load(refresh: true);
+    } catch (_) {}
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(
+        builder: (_) => ReaderScreen(
+          journalId: widget.journalId!,
+          isSubscribed: true,
+        ),
+      ),
+    );
+  }
+
   void _showSuccessDialog() {
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (context) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         content: Column(
           mainAxisSize: MainAxisSize.min,
@@ -1356,9 +1378,9 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
                   color: Colors.white, size: 40),
             ),
             const SizedBox(height: 16),
-            const Text(
+            Text(
               'Achat réussi !',
-              style: TextStyle(
+              style: const TextStyle(
                 fontSize: 20,
                 fontWeight: FontWeight.w900,
                 color: Color(0xFF0A2647),
@@ -1366,7 +1388,7 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
             ),
             const SizedBox(height: 8),
             Text(
-              'Votre publication est maintenant disponible pour la lecture.',
+              'Ouverture de votre publication…',
               textAlign: TextAlign.center,
               style: TextStyle(fontSize: 14, color: Colors.grey.shade600),
             ),
@@ -1375,23 +1397,43 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
               width: double.infinity,
               child: ElevatedButton(
                 onPressed: () {
-                  Navigator.pop(context);
-                  Navigator.pop(context);
+                  Navigator.pop(dialogContext); // ferme le dialog de succès
+                  if (!widget.isRecharge) {
+                    // Achat : entrée directe dans l'article. Recharge : on
+                    // revient simplement à l'écran précédent.
+                    _openPurchasedArticle();
+                  } else {
+                    Navigator.pop(context);
+                  }
                 },
                 style: ElevatedButton.styleFrom(
                   backgroundColor: _methodColor,
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12)),
                 ),
-                child: const Text('OK'),
+                child: Text(widget.isRecharge ? 'Fermer' : 'Ouvrir l\u2019article'),
               ),
             ),
           ],
         ),
       ),
     );
+
+    // ─── ENTRÉE DIRECTE SANS CLIC (demande explicite) ───────────────────
+    // Pour un achat (pas une recharge) : le succès s'affiche brièvement puis
+    // le lecteur s'ouvre TOUT SEUL. Le bouton reste disponible pour les
+    // impatients (et évite tout blocage si le timer est interrompu).
+    if (!widget.isRecharge && widget.journalId != null) {
+      Future.delayed(const Duration(milliseconds: 1300), () {
+        if (!mounted || _autoOpenedReader) return;
+        Navigator.of(context).pop(); // ferme le dialog de succès
+        _openPurchasedArticle();
+      });
+    }
   }
 
+  /// Appelée après fermeture du dialog de succès. Gère le refresh profil
+  /// et la fermeture de PaymentScreen, en évitant tout problème async/context.
   void _showFailedDialog(String message) {
     showDialog(
       context: context,

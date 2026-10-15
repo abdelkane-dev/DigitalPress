@@ -1,5 +1,37 @@
 from rest_framework import serializers
-from .models import Plan, Abonnement
+from .models import Plan, Abonnement, PlatformPlan, PublisherSubscription
+
+
+class PlatformPlanSerializer(serializers.ModelSerializer):
+    features_list = serializers.SerializerMethodField()
+
+    class Meta:
+        model = PlatformPlan
+        fields = [
+            'id', 'name', 'description', 'prix', 'period', 'features', 'features_list', 'is_active',
+            'max_priority_slots', 'commission_rate', 'max_reader_plans', 'has_verified_badge',
+            'min_withdrawal_amount', 'max_withdrawal_amount', 'has_stats_export',
+            # Seuils de progression automatique (Basique -> Standard -> Premium) :
+            # sans eux, le frontend affiche « 0 / 0 » pour chaque condition.
+            'min_subscribers', 'min_publications', 'min_sales',
+        ]
+
+    def get_features_list(self, obj):
+        return [f.strip() for f in obj.features.split('\n') if f.strip()]
+
+
+class PublisherSubscriptionSerializer(serializers.ModelSerializer):
+    plan_name = serializers.CharField(source='plan.name', read_only=True)
+    plan_details = PlatformPlanSerializer(source='plan', read_only=True)
+    is_active = serializers.ReadOnlyField()
+
+    class Meta:
+        model = PublisherSubscription
+        fields = [
+            'id', 'publisher', 'plan', 'plan_name', 'plan_details', 'montant',
+            'status', 'start_date', 'end_date', 'transaction_ref', 'is_active', 'created_at',
+        ]
+        read_only_fields = ['publisher', 'status', 'start_date', 'end_date', 'transaction_ref', 'created_at']
 
 
 class PlanSerializer(serializers.ModelSerializer):
@@ -57,6 +89,11 @@ class AbonnementCreateSerializer(serializers.ModelSerializer):
         plan = attrs.get('plan')
         if not plan:
             raise serializers.ValidationError("Un plan d'abonnement est requis.")
+        
+        # Empêcher un éditeur de s'abonner à lui-même
+        user = self.context['request'].user
+        if plan.publisher == user:
+            raise serializers.ValidationError("Vous ne pouvez pas vous abonner à vous-même.")
         
         attrs['montant'] = plan.prix
         attrs['publisher'] = plan.publisher

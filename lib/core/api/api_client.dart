@@ -27,16 +27,16 @@ String buildHealthStatusMessage({
   required bool isOnline,
   String? serverMessage,
 }) {
-  if (!isOnline) {
-    return 'Le serveur est indisponible';
+  // ─── PRODUCTION : plus aucun message d'état quand le serveur répond ──
+  // L'ancien bannière « digital-press-api • ok • v1 » (message technique
+  // renvoyé par /health/) s'affichait à chaque connexion — demandé : ne
+  // rien afficher quand le serveur est disponible, garder uniquement le
+  // message « Le serveur est indisponible » en cas de panne.
+  if (isOnline) {
+    return '';
   }
 
-  final message = (serverMessage ?? '').trim();
-  if (message.isNotEmpty) {
-    return message;
-  }
-
-  return 'Serveur disponible';
+  return 'Le serveur est indisponible';
 }
 
 class ApiClient {
@@ -48,10 +48,17 @@ class ApiClient {
     _dio = Dio(
       BaseOptions(
         baseUrl: baseUrl,
-        connectTimeout: const Duration(seconds: 30),
-        receiveTimeout: const Duration(seconds: 30),
+        connectTimeout: const Duration(seconds: 45),
+        receiveTimeout: const Duration(seconds: 45),
         contentType: 'application/json',
-        headers: {'Accept': 'application/json'},
+        headers: {
+          'Accept': 'application/json',
+          // ─── OPTIMISATION RÉSEAU MALI ───────────────────────────────────
+          // Accept-Encoding: gzip zlib réduit la taille des réponses de 60-80%
+          // critique pour les réseaux à faible débit (2G/3G au Mali).
+          // Dio + Dart HttpClient gèrent le décodage automatiquement.
+          'Accept-Encoding': 'gzip, deflate',
+        },
       ),
     );
 
@@ -179,30 +186,88 @@ class ApiClient {
         e.type == DioExceptionType.receiveTimeout ||
         e.type == DioExceptionType.connectionError) {
       return NetworkFailure(
-        'Impossible de joindre le serveur (${ApiConfig.baseUrl}). '
-        'Vérifiez que le backend Django est démarré.',
+        'Connexion impossible. Vérifiez votre réseau puis réessayez.',
       );
     }
-    if (e.response?.statusCode == 401) {
-      return const AuthFailure('Session expirée. Veuillez vous reconnecter.');
-    }
+
+    final path = e.requestOptions.path.toLowerCase();
+    final isAuthEndpoint = path.contains('login') ||
+        path.contains('register') ||
+        path.contains('password') ||
+        path.contains('verify') ||
+        path.contains('token');
+
     final data = e.response?.data;
-    String message = 'Une erreur est survenue';
+    String? serverMessage;
+    Map<String, dynamic>? errorsMap;
+
     if (data is Map) {
+      errorsMap = Map<String, dynamic>.from(data);
       if (data.containsKey('detail')) {
-        message = data['detail'].toString();
-      } else if (data.containsKey('message')) {
-        message = data['message'].toString();
-      } else if (data.isNotEmpty) {
-        final firstValue = data.values.first;
-        if (firstValue is List && firstValue.isNotEmpty) {
-          message = firstValue.first.toString();
+        final detail = data['detail'].toString();
+        final lowerDetail = detail.toLowerCase();
+        if (lowerDetail.contains('no active account found') ||
+            lowerDetail.contains('invalid credentials') ||
+            lowerDetail.contains('identifiants invalides') ||
+            lowerDetail.contains('unable to log in')) {
+          serverMessage = 'Adresse email ou mot de passe incorrect.';
         } else {
-          message = firstValue.toString();
+          serverMessage = detail;
+        }
+      } else if (data.containsKey('message')) {
+        serverMessage = data['message'].toString();
+      } else if (data.isNotEmpty) {
+        final buffer = <String>[];
+        data.forEach((key, value) {
+          String valStr = '';
+          if (value is List && value.isNotEmpty) {
+            valStr = value.map((v) => v.toString()).join(', ');
+          } else if (value != null) {
+            valStr = value.toString();
+          }
+
+          if (valStr.isNotEmpty) {
+            if (key == 'non_field_errors' || key == 'detail') {
+              buffer.add(valStr);
+            } else if (key == 'email') {
+              buffer.add('Email : $valStr');
+            } else if (key == 'password' || key == 'password2') {
+              buffer.add('Mot de passe : $valStr');
+            } else if (key == 'phone') {
+              buffer.add('Téléphone : $valStr');
+            } else if (key == 'username') {
+              buffer.add('Nom d\'utilisateur : $valStr');
+            } else if (key == 'company_name') {
+              buffer.add('Nom d\'entreprise : $valStr');
+            } else if (key == 'code') {
+              buffer.add('Code : $valStr');
+            } else {
+              buffer.add('$key : $valStr');
+            }
+          }
+        });
+
+        if (buffer.isNotEmpty) {
+          serverMessage = buffer.join('\n');
         }
       }
     }
-    return ServerFailure(message);
+
+    if (e.response?.statusCode == 401) {
+      if (isAuthEndpoint || serverMessage != null) {
+        return AuthFailure(serverMessage ?? 'Adresse email ou mot de passe incorrect.', errorsMap);
+      }
+      return AuthFailure('Session expirée. Veuillez vous reconnecter.', errorsMap);
+    }
+
+    if (serverMessage != null && serverMessage.isNotEmpty) {
+      return ServerFailure(serverMessage, errorsMap);
+    }
+
+    return ServerFailure(
+      'Une erreur est survenue (${e.response?.statusCode ?? "inconnue"})',
+      errorsMap,
+    );
   }
 
   void addInterceptor(Interceptor interceptor) {

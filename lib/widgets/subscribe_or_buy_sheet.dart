@@ -43,49 +43,189 @@ class _SubscribeOrBuySheetState extends ConsumerState<SubscribeOrBuySheet> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               _buildHeader(),
-              const SizedBox(height: 24),
+              const SizedBox(height: 20),
               _buildJournalPreview(),
-              const SizedBox(height: 24),
-              const Text(
-                'Choisissez votre formule',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF0A2647),
-                ),
-              ),
-              const SizedBox(height: 12),
-              // Option Achat Unitaire
-              _buildUnitOption(),
-              if (widget.publication.resellPrice != null && widget.publication.resellPrice! > 0) ...[
-                const SizedBox(height: 12),
-                _buildResellOption(),
-              ],
-              const SizedBox(height: 12),
-              // Options Abonnements
-              plansAsync.when(
-                data: (plans) {
-                  if (plans.isEmpty) {
-                    return const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 8.0),
-                      child: Text(
-                        'Aucun plan d\'abonnement disponible pour cette presse.',
-                        style: TextStyle(fontSize: 13, color: Colors.grey),
+              const SizedBox(height: 20),
+              if (widget.publication.isSubscribed) ...[
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.green.shade50,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: Colors.green.shade200),
+                  ),
+                  child: Column(
+                    children: [
+                      Row(
+                        children: [
+                          Icon(Icons.check_circle_rounded,
+                              color: Colors.green.shade700, size: 24),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              'Vous avez déjà accès à ce contenu !',
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: Colors.green.shade900,
+                                fontSize: 15,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
-                    );
-                  }
-                  return Column(
-                    children: plans.map((plan) => _buildPlanOption(plan)).toList(),
-                  );
-                },
-                loading: () => const Center(
-                  child: Padding(
-                    padding: EdgeInsets.all(16.0),
-                    child: CircularProgressIndicator(color: Color(0xFF2C74B3)),
+                      const SizedBox(height: 12),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          onPressed: () {
+                            Navigator.pop(context);
+                            context.push(
+                                '/reader/${widget.publication.id}',
+                                extra: true);
+                          },
+                          icon: const Icon(Icons.auto_stories_rounded),
+                          label: const Text('Lire maintenant'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF336B82),
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12)),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-                error: (err, stack) => Text('Erreur chargement plans: $err'),
-              ),
+              ] else if (widget.publication.isFree || widget.publication.prix == 0) ...[
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.shade50,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: Colors.blue.shade200),
+                  ),
+                  child: Column(
+                    children: [
+                      Row(
+                        children: [
+                          Icon(Icons.lock_open_rounded,
+                              color: Colors.blue.shade700, size: 24),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              'Ce contenu est public et gratuit.',
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: Colors.blue.shade900,
+                                fontSize: 15,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          onPressed: () {
+                            Navigator.pop(context);
+                            context.push(
+                                '/reader/${widget.publication.id}',
+                                extra: true);
+                          },
+                          icon: const Icon(Icons.auto_stories_rounded),
+                          label: const Text('Lire gratuitement'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF336B82),
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12)),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ] else ...[
+                if (widget.publication.isSubscriberExclusive) ...[
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: Colors.amber.shade50,
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: Colors.amber.shade300),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.star_rounded,
+                            color: Colors.amber.shade800, size: 24),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            'Contenu exclusif réservé aux abonnés de cette presse.',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 13,
+                              color: Colors.amber.shade900,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                ] else ...[
+                  const Text(
+                    'Choisissez votre formule',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF0A2647),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  _buildUnitOption(),
+                  const SizedBox(height: 12),
+                ],
+                const Text(
+                  'Formules d\'abonnement',
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF0A2647),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                plansAsync.when(
+                  data: (plans) {
+                    if (plans.isEmpty) {
+                      return const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 8.0),
+                        child: Text(
+                          'Aucun plan d\'abonnement disponible pour cette presse.',
+                          style: TextStyle(fontSize: 13, color: Colors.grey),
+                        ),
+                      );
+                    }
+                    return Column(
+                      children: plans
+                          .map((plan) => _buildPlanOption(plan))
+                          .toList(),
+                    );
+                  },
+                  loading: () => const Center(
+                    child: Padding(
+                      padding: EdgeInsets.all(16.0),
+                      child: CircularProgressIndicator(
+                          color: Color(0xFF2C74B3)),
+                    ),
+                  ),
+                  error: (err, stack) =>
+                      Text('Erreur chargement plans: $err'),
+                ),
+              ],
               if (_isCreatingAbonnement)
                 const Padding(
                   padding: EdgeInsets.only(top: 16),
@@ -252,74 +392,6 @@ class _SubscribeOrBuySheetState extends ConsumerState<SubscribeOrBuySheet> {
             ),
             Text(
               '${widget.publication.prix.toStringAsFixed(0)} FCFA',
-              style: const TextStyle(
-                fontWeight: FontWeight.w900,
-                fontSize: 16,
-                color: Color(0xFF0A2647),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildResellOption() {
-    return InkWell(
-      onTap: () {
-        Navigator.pop(context); // Ferme ce sheet
-        // Ouvre le sheet de paiement
-        showModalBottomSheet(
-          context: context,
-          isScrollControlled: true,
-          backgroundColor: Colors.transparent,
-          builder: (context) => PaymentSelectionSheet(
-            journalId: widget.publication.id.toString(),
-            price: widget.publication.resellPrice ?? 0,
-            isResellRight: true,
-          ),
-        );
-      },
-      borderRadius: BorderRadius.circular(16),
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: const Color(0xFFD95A00).withAlpha(50), width: 1.5),
-        ),
-        child: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: const Color(0xFFD95A00).withAlpha(20),
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(Icons.handshake_rounded, color: Color(0xFFD95A00)),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Acheter les droits de revente',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 15,
-                      color: Color(0xFF0A2647),
-                    ),
-                  ),
-                  Text(
-                    'Vendez ce journal sur votre propre kiosque',
-                    style: TextStyle(color: Colors.grey.shade500, fontSize: 11),
-                  ),
-                ],
-              ),
-            ),
-            Text(
-              '${widget.publication.resellPrice!.toStringAsFixed(0)} FCFA',
               style: const TextStyle(
                 fontWeight: FontWeight.w900,
                 fontSize: 16,

@@ -1,4 +1,6 @@
-import 'dart:io';
+import '../../core/io_helper/io_helper.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
+
 import 'package:digital_press/model/reader_view_model.dart';
 import 'package:digital_press/widgets/watermark_overlay.dart';
 import 'package:digital_press/widgets/subscribe_or_buy_sheet.dart';
@@ -10,21 +12,35 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:digital_press/config/api_config.dart';
 import 'package:go_router/go_router.dart';
 import 'package:syncfusion_flutter_pdfviewer/pdfviewer.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import '../../core/services/preview_service.dart';
 import '../../core/services/security_service.dart';
 import '../../widgets/short_video_player.dart';
 
 String sanitizeMediaUrl(String url) {
   if (url.isEmpty) return url;
-  if (url.contains('localhost:8000') || url.contains('127.0.0.1:8000')) {
-    final apiBase = ApiConfig.baseUrl; // ex: http://10.0.2.2:8000/api/
-    final uri = Uri.parse(apiBase);
-    final actualHost = '${uri.scheme}://${uri.host}:${uri.port}';
-    return url
-        .replaceAll('http://localhost:8000', actualHost)
-        .replaceAll('http://127.0.0.1:8000', actualHost);
-  }
-  return url;
+  return ApiConfig.sanitizeUrl(url);
+}
+
+/// Nettoie un libellé de média pour ne JAMAIS afficher le nom de fichier.
+/// Les anciens contenus insèrent le nom brut (ex: "PDF DU 19 09 24.pdf") :
+/// dès qu'un libellé ressemble à un nom de fichier (extension présente,
+/// tirets/underscores, pas d'espace), on le remplace par un libellé propre.
+String cleanMediaLabel(String label, {String fallback = 'Document'}) {
+  final trimmed = label.trim();
+  if (trimmed.isEmpty) return fallback;
+  // Les libellés génériques insérés par l'éditeur sont conservés tels quels.
+  const genericLabels = {'Image', 'Vidéo', 'Document PDF', 'Fichier'};
+  if (genericLabels.contains(trimmed)) return trimmed;
+  // Tout libellé portant une extension de fichier (.pdf, .mp4, .jpg…) est
+  // un NOM DE FICHIER brut (ex: "PDF DU 19 09 24_240919_081438.pdf") — on le
+  // remplace par un libellé propre, quel que soit son format.
+  final hasExtension = RegExp(
+    r'\.(pdf|mp4|avi|mov|mkv|webm|jpg|jpeg|png|gif|webp)(\?|$)',
+    caseSensitive: false,
+  ).hasMatch(trimmed);
+  if (hasExtension) return fallback;
+  return trimmed;
 }
 
 /// Écran principal de lecture des journaux et magazines.
@@ -49,19 +65,25 @@ class ReaderScreen extends ConsumerStatefulWidget {
 
 class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   late PdfViewerController _pdfViewerController;
+  // Gardé en référence : `ref` n'est plus utilisable dans dispose() avec
+  // cette version de Riverpod (StateError « Cannot use ref after the
+  // widget was disposed ») — on lit donc le service une seule fois à
+  // l'initialisation et on le réutilise à la fermeture.
+  late final SecurityService _securityService;
 
   @override
   void initState() {
     super.initState();
     _pdfViewerController = PdfViewerController();
+    _securityService = ref.read(securityServiceProvider);
     // Activer FLAG_SECURE dès l'ouverture du lecteur
-    ref.read(securityServiceProvider).setSecureMode(true);
+    _securityService.setSecureMode(true);
   }
 
   @override
   void dispose() {
     // Désactiver FLAG_SECURE quand on quitte le lecteur
-    ref.read(securityServiceProvider).setSecureMode(false);
+    _securityService.setSecureMode(false);
     _pdfViewerController.dispose();
     super.dispose();
   }
@@ -81,7 +103,12 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                   color: Colors.white, size: 30),
               onPressed: () => Navigator.pop(context),
             ),
-            ShortVideoPlayer(videoUrl: videoUrl, title: title),
+            // La présentation démarre immédiatement (comme un plein écran).
+            ShortVideoPlayer(
+              videoUrl: videoUrl,
+              title: title,
+              autoPlayOnce: true,
+            ),
           ],
         ),
       ),
@@ -132,7 +159,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
             ),
             const SizedBox(height: 10),
             const Text(
-              'Vous avez atteint la limite de lecture gratuite (3 pages).\n'
+              'Vous avez atteint la limite d\'aperçu (3 pages).\n'
               'Abonnez-vous ou achetez ce numéro pour accéder à l\'intégralité du contenu.',
               style:
                   TextStyle(color: Colors.white70, fontSize: 14, height: 1.5),
@@ -146,9 +173,20 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                   Navigator.pop(context); // Ferme le BottomSheet actuel
 
                   // Récupérer la publication et afficher la sélection d'achat/abonnement
+                  final pubId = int.tryParse(widget.journalId);
+                  if (pubId == null) {
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Identifiant de publication invalide.'),
+                        ),
+                      );
+                    }
+                    return;
+                  }
                   ref
                       .read(
-                          publicationDetailProvider(int.parse(widget.journalId))
+                          publicationDetailProvider(pubId)
                               .future)
                       .then((pub) {
                     if (mounted) {
@@ -182,13 +220,35 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Id de publication non numérique (URL mal formée) : on affiche une
+    // erreur claire au lieu de planter avec une FormatException.
+    final publicationId = int.tryParse(widget.journalId);
+    if (publicationId == null) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Journal invalide')),
+        body: const Center(
+          child: Padding(
+            padding: EdgeInsets.all(24),
+            child: Text('Identifiant de publication invalide.'),
+          ),
+        ),
+      );
+    }
     final state = ref.watch(readerViewModelProvider(widget.journalId));
     final viewModel =
         ref.read(readerViewModelProvider(widget.journalId).notifier);
-    final pubDetailAsync =
-        ref.watch(publicationDetailProvider(int.parse(widget.journalId)));
+    final pubDetailAsync = ref.watch(publicationDetailProvider(publicationId));
     final isArticle = pubDetailAsync.valueOrNull?.pubType == 'article';
     final showLoading = state.isLoading && !isArticle;
+    // ─── PAYWALL AVANT TOUT : un contenu payant non débloqué ne donne accès
+    // ni à la lecture ni à la conversation (bouton « Voir la conversation »
+    // masqué tant que le contenu reste verrouillé).
+    final currentUser = ref.watch(authStateProvider).valueOrNull;
+    final isLocked = pubDetailAsync.valueOrNull != null &&
+        pubDetailAsync.valueOrNull!.isLockedFor(
+          currentUserId: currentUser?.id,
+          isAdmin: currentUser?.isAdmin ?? false,
+        );
 
     return Scaffold(
       backgroundColor:
@@ -216,7 +276,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                     Icon(Icons.lock_outline, size: 14, color: Colors.white),
                     SizedBox(width: 4),
                     Text(
-                      '3 pages gratuites',
+                      '3 pages d\'aperçu',
                       style: TextStyle(
                           color: Colors.white,
                           fontSize: 11,
@@ -243,19 +303,20 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
             loading: () => const SizedBox.shrink(),
             error: (_, __) => const SizedBox.shrink(),
           ),
-          // Le bouton de téléchargement devient un bouton d'accès à la
-          // conversation de l'article (commentaires + avis), accessible dès
-          // que l'utilisateur est en train de lire l'article.
-          IconButton(
-            icon: const Icon(Icons.forum_rounded),
-            tooltip: 'Voir la conversation',
-            onPressed: () {
-              final pubId = int.tryParse(widget.journalId);
-              if (pubId != null) {
-                context.push('/article/$pubId?scrollToComments=true');
-              }
-            },
-          ),
+          // Bouton d'accès à la conversation de l'article (commentaires +
+          // avis). Masqué tant que le contenu est verrouillé : on ne permet
+          // aucun visionnage (même les commentaires) avant d'avoir payé.
+          if (!isLocked)
+            IconButton(
+              icon: const Icon(Icons.forum_rounded),
+              tooltip: 'Voir la conversation',
+              onPressed: () {
+                final pubId = int.tryParse(widget.journalId);
+                if (pubId != null) {
+                  context.push('/article/$pubId?scrollToComments=true');
+                }
+              },
+            ),
           IconButton(
             icon: Icon(
               state.isNightMode
@@ -297,7 +358,10 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
           else
             pubDetailAsync.when(
               data: (pub) {
-                if (pub.prix > 0 && !pub.isSubscribed) {
+                if (pub.isLockedFor(
+                  currentUserId: currentUser?.id,
+                  isAdmin: currentUser?.isAdmin ?? false,
+                )) {
                   return Center(
                     child: Padding(
                       padding: const EdgeInsets.all(24),
@@ -330,34 +394,52 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                   );
                 }
 
-                if (pub.pubType == 'article') {
+                // ─── CONTENU AFFICHÉ, QUEL QUE SOIT LE TYPE ────────────
+                // Un magazine/journal/rapport/e-book publié SANS fichier
+                // PDF (ex: contenu rédigé en Markdown, vidéo de couverture
+                // seule, ou publication en cours de complétion) affichait
+                // une page intérieure blanche : le lecteur ne savait
+                // rendre QUE des PDF pour ces types. On retombe alors sur
+                // la vue "contenu" (texte + médias) — jamais d'écran vide.
+                final hasPdf = state.fileUrl != null && state.fileUrl!.isNotEmpty;
+                final hasTextContent = pub.content.trim().isNotEmpty;
+                if (pub.pubType == 'article' ||
+                    (pub.pubType != 'article' && (!hasPdf && hasTextContent))) {
                   return _buildArticleContentView(pub, state.isNightMode);
                 }
-                final pdfViewer = state.localFilePath != null
-                    ? SfPdfViewer.file(
-                        File(state.localFilePath!),
+                // ─── LECTURE ADAPTÉE AU TYPE DE PUBLICATION ─────────────
+                // E-book : lecture continue en défilement vertical, comme un
+                // livre. Magazine / Journal / Rapport : pages pleines en
+                // défilement horizontal (numérotation classique).
+                final isEbook = pub.pubType == 'ebook';
+                final pdfLayout = isEbook
+                    ? PdfPageLayoutMode.continuous
+                    : PdfPageLayoutMode.single;
+                final pdfScroll = isEbook
+                    ? PdfScrollDirection.vertical
+                    : PdfScrollDirection.horizontal;
+                final pdfViewer = state.localFilePath != null && !kIsWeb
+                    ? buildLocalPdfViewer(
+                        filePath: state.localFilePath!,
                         controller: _pdfViewerController,
+                        pageLayoutMode: pdfLayout,
+                        scrollDirection: pdfScroll,
                         onDocumentLoaded: (details) {
                           if (mounted) {
-                            viewModel
-                                .onDocumentLoaded(details.document.pages.count);
+                            viewModel.onDocumentLoaded(details.document.pages.count);
                             if (state.currentPage > 1) {
-                              _pdfViewerController
-                                  .jumpToPage(state.currentPage);
+                              _pdfViewerController.jumpToPage(state.currentPage);
                             }
                           }
                         },
                         onDocumentLoadFailed: (details) {
                           if (mounted) {
-                            viewModel.onReaderError(
-                              'Impossible de charger le fichier local: ${details.description}',
-                            );
+                            viewModel.onReaderError('Impossible de charger le fichier local: ${details.description}');
                           }
                         },
                         onPageChanged: (details) {
                           if (mounted) {
-                            _onPageChanged(
-                                details, widget.isSubscribed, viewModel);
+                            _onPageChanged(details, widget.isSubscribed, viewModel);
                           }
                         },
                       )
@@ -366,6 +448,8 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                         : SfPdfViewer.network(
                             sanitizeMediaUrl(state.fileUrl!),
                             controller: _pdfViewerController,
+                            pageLayoutMode: pdfLayout,
+                            scrollDirection: pdfScroll,
                             onDocumentLoaded: (details) {
                               if (mounted) {
                                 viewModel.onDocumentLoaded(
@@ -467,7 +551,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                     ),
                     const SizedBox(height: 6),
                     Text(
-                      'Accès gratuit : ${PreviewService.maxPreviewPages} / ${state.totalPages} pages',
+                      'Aperçu : ${PreviewService.maxPreviewPages} / ${state.totalPages} pages',
                       style:
                           const TextStyle(color: Colors.white70, fontSize: 12),
                     ),
@@ -494,6 +578,26 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     );
   }
 
+  Widget _publisherAvatarFallback(String publisherName, bool isNightMode) {
+    final initials = publisherName.trim().isNotEmpty
+        ? (publisherName.trim().length >= 2
+            ? publisherName.trim().substring(0, 2).toUpperCase()
+            : publisherName.trim().toUpperCase())
+        : 'DP';
+    return Container(
+      color: isNightMode ? const Color(0xFF1E293B) : const Color(0xFFE2E8F0),
+      alignment: Alignment.center,
+      child: Text(
+        initials,
+        style: TextStyle(
+          fontSize: 14,
+          fontWeight: FontWeight.w800,
+          color: isNightMode ? Colors.white70 : const Color(0xFF0A2647),
+        ),
+      ),
+    );
+  }
+
   Widget _buildArticleContentView(Publication publication, bool isNightMode) {
     final themeBgColor =
         isNightMode ? const Color(0xFF121212) : const Color(0xFFF8FAFC);
@@ -504,21 +608,142 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
 
     final widgets = <Widget>[];
 
-    // Title
-    widgets.add(Text(
-      publication.title,
-      style: TextStyle(
-        fontSize: 26,
-        fontWeight: FontWeight.w900,
-        color: themeHeaderColor,
-      ),
+    // ─── TITRE + AVATAR ÉDITEUR côte à côte ────────────────────────────
+    // L'avatar est placé à droite du titre (aligné en haut) et est
+    // cliquable pour accéder au profil public de l'éditeur — façon presse.
+    widgets.add(Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(
+          child: Text(
+            publication.title,
+            style: TextStyle(
+              fontSize: 26,
+              fontWeight: FontWeight.w900,
+              color: themeHeaderColor,
+            ),
+          ),
+        ),
+        if (publication.publisherId > 0) ...[
+          const SizedBox(width: 12),
+          GestureDetector(
+            onTap: () => context.push('/publisher/${publication.publisherId}'),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Avatar circulaire de l'éditeur
+                Container(
+                  width: 48,
+                  height: 48,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: const Color(0xFF2C74B3).withAlpha(80),
+                      width: 2,
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withAlpha(20),
+                        blurRadius: 6,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: ClipOval(
+                    child: (publication.publisherAvatarUrl != null &&
+                            publication.publisherAvatarUrl!.isNotEmpty)
+                        ? CachedNetworkImage(
+                            imageUrl: publication.publisherAvatarUrl!,
+                            fit: BoxFit.cover,
+                            placeholder: (_, __) => _publisherAvatarFallback(
+                              publication.publisherName,
+                              isNightMode,
+                            ),
+                            errorWidget: (_, __, ___) => _publisherAvatarFallback(
+                              publication.publisherName,
+                              isNightMode,
+                            ),
+                          )
+                        : _publisherAvatarFallback(
+                            publication.publisherName,
+                            isNightMode,
+                          ),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                // Nom court de l'éditeur sous l'avatar
+                SizedBox(
+                  width: 56,
+                  child: Text(
+                    publication.publisherName,
+                    textAlign: TextAlign.center,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                      color: isNightMode
+                          ? Colors.white70
+                          : const Color(0xFF2C74B3),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ],
     ));
-    widgets.add(const SizedBox(height: 8));
+    widgets.add(const SizedBox(height: 10));
 
-    // Metadata row
+    // ─── BADGE DU TYPE DE PUBLICATION ──────────────────────────────────
+    // Chaque type (Article, Magazine, Journal, Rapport, E-book) affiche
+    // son propre badge et adapte son expérience de lecture (voir plus haut).
     widgets.add(Row(
       children: [
-        if (publication.categoryName != null) ...[
+        _buildTypeChip(publication.pubType, isNightMode),
+        if (publication.isFeatured) ...[
+          const SizedBox(width: 8),
+          _buildFeaturedChip(),
+        ],
+        if (publication.isSubscriberExclusive) ...[
+          const SizedBox(width: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+            decoration: BoxDecoration(
+              color: Colors.deepPurple.shade50,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.deepPurple.shade200),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.star_rounded,
+                    size: 11, color: Colors.deepPurple.shade600),
+                const SizedBox(width: 3),
+                Text(
+                  'Exclusif',
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w800,
+                    color: Colors.deepPurple.shade700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ],
+    ));
+    widgets.add(const SizedBox(height: 10));
+
+    // Metadata row — catégorie, date, vues, note
+    widgets.add(Wrap(
+      spacing: 8,
+      runSpacing: 6,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        if (publication.categoryName != null)
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
             decoration: BoxDecoration(
@@ -534,27 +759,93 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
               ),
             ),
           ),
-          const SizedBox(width: 8),
-        ],
-        TextButton(
-          onPressed: publication.publisherId > 0
-              ? () => context.push('/publisher/${publication.publisherId}')
-              : null,
-          style: TextButton.styleFrom(
-            padding: EdgeInsets.zero,
-            minimumSize: const Size(0, 0),
-            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-          ),
-          child: Text(
-            'Par ${publication.publisherName}',
-            style: TextStyle(
-              color: const Color(0xFF2C74B3),
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-              decoration: TextDecoration.underline,
+        if (publication.publishedAt != null)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            decoration: BoxDecoration(
+              color: isNightMode ? Colors.white10 : Colors.grey.shade100,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.calendar_today_rounded,
+                    size: 12, color: themeTextColor.withValues(alpha: 0.7)),
+                const SizedBox(width: 5),
+                Text(
+                  _formatDateFr(publication.publishedAt!),
+                  style: TextStyle(
+                    color: themeTextColor.withValues(alpha: 0.8),
+                    fontWeight: FontWeight.w600,
+                    fontSize: 12,
+                  ),
+                ),
+              ],
             ),
           ),
-        ),
+        if (publication.viewsCount > 0)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            decoration: BoxDecoration(
+              color: isNightMode ? Colors.white10 : Colors.grey.shade100,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.visibility_outlined,
+                    size: 13, color: themeTextColor.withValues(alpha: 0.7)),
+                const SizedBox(width: 5),
+                Text(
+                  _formatCount(publication.viewsCount),
+                  style: TextStyle(
+                    color: themeTextColor.withValues(alpha: 0.8),
+                    fontWeight: FontWeight.w600,
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        if (publication.averageRating != null && publication.reviewsCount > 0)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            decoration: BoxDecoration(
+              color: Colors.amber.withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.star_rounded, size: 14, color: Color(0xFFB45309)),
+                const SizedBox(width: 4),
+                Text(
+                  '${publication.averageRating!.toStringAsFixed(1)} (${publication.reviewsCount})',
+                  style: const TextStyle(
+                    color: Color(0xFFB45309),
+                    fontWeight: FontWeight.w700,
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        if (publication.publisherBadge != null)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+            decoration: BoxDecoration(
+              color: Colors.amber.shade100,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Text(
+              publication.publisherBadge!,
+              style: TextStyle(
+                fontSize: 9,
+                fontWeight: FontWeight.w800,
+                color: Colors.amber.shade900,
+              ),
+            ),
+          ),
       ],
     ));
     widgets.add(const SizedBox(height: 16));
@@ -570,12 +861,69 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     } else if (publication.coverImage.isNotEmpty) {
       widgets.add(ClipRRect(
         borderRadius: BorderRadius.circular(16),
-        child: Image.network(
-          sanitizeMediaUrl(publication.coverImage),
-          width: double.infinity,
-          height: 200,
-          fit: BoxFit.cover,
-          errorBuilder: (context, error, stackTrace) => const SizedBox.shrink(),
+        child: GestureDetector(
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => FullScreenImageViewer(
+                imageUrl: sanitizeMediaUrl(publication.coverImage),
+                title: publication.title,
+              ),
+            ),
+          ),
+          child: Stack(
+            children: [
+              Image.network(
+                sanitizeMediaUrl(publication.coverImage),
+                width: double.infinity,
+                height: 200,
+                fit: BoxFit.cover,
+                loadingBuilder: (context, child, progress) {
+                  if (progress == null) return child;
+                  return Container(
+                    height: 200,
+                    width: double.infinity,
+                    color: Colors.grey.shade200,
+                    child: const Center(
+                      child: SizedBox(
+                        width: 24,
+                        height: 24,
+                        child: CircularProgressIndicator(strokeWidth: 2.5),
+                      ),
+                    ),
+                  );
+                },
+                errorBuilder: (context, error, stackTrace) => Container(
+                  height: 200,
+                  width: double.infinity,
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFF0A2647), Color(0xFF2C74B3)],
+                    ),
+                  ),
+                  child: const Center(
+                    child: Icon(Icons.broken_image_rounded, color: Colors.white54, size: 40),
+                  ),
+                ),
+              ),
+              Positioned(
+                top: 8,
+                right: 8,
+                child: Material(
+                  color: Colors.black.withValues(alpha: 0.55),
+                  shape: const CircleBorder(),
+                  child: const Padding(
+                    padding: EdgeInsets.all(8),
+                    child: Icon(
+                      Icons.fullscreen_rounded,
+                      color: Colors.white,
+                      size: 22,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ));
       widgets.add(const SizedBox(height: 20));
@@ -605,6 +953,12 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       ));
       widgets.add(const SizedBox(height: 20));
     }
+
+    // ─── ARTICLE SANS CONTENU : état vide explicite ─────────────────────
+    // Un article publié sans texte (donnée ancienne ou import manuel)
+    // affichait une page intérieure quasi blanche sur l'accueil. On
+    // détecte ce cas pour montrer un état clair à la place.
+    final bool isEmptyArticle = publication.content.trim().isEmpty;
 
     // Parse main content
     final blocks = publication.content.split(RegExp(r'\n\s*\n'));
@@ -736,31 +1090,93 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
           final imageUrl = sanitizeMediaUrl(imageMatch?.group(2) ??
               RegExp(r'\((.*?)\)').firstMatch(line)?.group(1) ??
               '');
-          widgets.add(Padding(
-            padding: const EdgeInsets.symmetric(vertical: 12),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(12),
-              child: imageUrl.startsWith('http')
-                  ? Image.network(
-                      imageUrl,
+          final imageWidget = imageUrl.startsWith('http')
+              ? Image.network(
+                  imageUrl,
+                  width: double.infinity,
+                  fit: BoxFit.fitWidth,
+                  loadingBuilder: (context, child, progress) {
+                    if (progress == null) return child;
+                    return Container(
+                      height: 150,
                       width: double.infinity,
-                      fit: BoxFit.fitWidth,
-                      errorBuilder: (context, error, stackTrace) => Container(
-                        padding: const EdgeInsets.all(12),
-                        color: Colors.grey.shade200,
-                        child: const Text('Image non disponible'),
+                      color: Colors.grey.shade100,
+                      child: const Center(
+                        child: SizedBox(
+                          width: 24,
+                          height: 24,
+                          child: CircularProgressIndicator(strokeWidth: 2.5),
+                        ),
                       ),
-                    )
-                  : Image.file(
-                      File(imageUrl),
+                    );
+                  },
+                  errorBuilder: (context, error, stackTrace) => Container(
+                    height: 120,
+                    width: double.infinity,
+                    color: Colors.grey.shade200,
+                    child: const Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.broken_image_rounded, color: Colors.grey, size: 32),
+                        SizedBox(height: 8),
+                        Text('Image non disponible', style: TextStyle(color: Colors.grey, fontSize: 13)),
+                      ],
+                    ),
+                  ),
+                )
+              : (kIsWeb
+                  ? const SizedBox.shrink()
+                  : buildLocalImage(
+                      path: imageUrl,
                       width: double.infinity,
+                      height: null,
                       fit: BoxFit.fitWidth,
                       errorBuilder: (context, error, stackTrace) => Container(
                         padding: const EdgeInsets.all(12),
                         color: Colors.grey.shade200,
                         child: const Text('Image locale non disponible'),
                       ),
+                    ));
+          widgets.add(Padding(
+            padding: const EdgeInsets.symmetric(vertical: 12),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: GestureDetector(
+                // ─── PLEIN ÉCRAN IMAGE (comme le PDF) ───────────────────
+                onTap: () {
+                  if (imageUrl.isEmpty) return;
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => FullScreenImageViewer(
+                        imageUrl: imageUrl,
+                        title: publication.title,
+                      ),
                     ),
+                  );
+                },
+                child: Stack(
+                  children: [
+                    imageWidget,
+                    Positioned(
+                      top: 8,
+                      right: 8,
+                      child: Material(
+                        color: Colors.black.withValues(alpha: 0.5),
+                        shape: const CircleBorder(),
+                        child: const Padding(
+                          padding: EdgeInsets.all(6),
+                          child: Icon(
+                            Icons.fullscreen_rounded,
+                            color: Colors.white,
+                            size: 20,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
           ));
           continue;
@@ -769,38 +1185,32 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
         // 2. Video Match : 🎬 [title](url) ou lien finissant par une extension vidéo
         final isVideoPrefix = line.contains('🎬') || line.contains('🎥');
         final isVideoExtension =
-            RegExp(r'\.(mp4|avi|mov|mkv|webm)(\?|$)').hasMatch(line);
+            RegExp(r'\.(mp4|avi|mov|mkv|webm)(\?|$)', caseSensitive: false).hasMatch(line);
 
         if (simpleLinkMatch != null && (isVideoPrefix || isVideoExtension)) {
           flushTextBuffer();
-          final videoTitle = simpleLinkMatch.group(1) ?? 'Vidéo';
+          // Le nom de fichier brut n'est JAMAIS affiché : on remplace tout
+          // libellé qui ressemble à un nom de fichier par « Vidéo ».
+          final videoTitle = cleanMediaLabel(
+            simpleLinkMatch.group(1) ?? '',
+            fallback: 'Vidéo',
+          );
           final videoUrl = sanitizeMediaUrl(simpleLinkMatch.group(2) ?? '');
+          // ─── AUCUNE MENTION « c'est une vidéo » (demande explicite) : le
+          // lecteur vidéo s'affiche seul, sans libellé « 🎬 Vidéo » ni nom
+          // de fichier — uniquement ce qui a été écrit dans la publication.
           widgets.add(Padding(
             padding: const EdgeInsets.symmetric(vertical: 12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '🎬 $videoTitle',
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 15,
-                    color: themeHeaderColor,
-                  ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(16),
+              child: SizedBox(
+                height: 220,
+                width: double.infinity,
+                child: ShortVideoPlayer(
+                  videoUrl: videoUrl,
+                  title: videoTitle,
                 ),
-                const SizedBox(height: 6),
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(16),
-                  child: SizedBox(
-                    height: 220,
-                    width: double.infinity,
-                    child: ShortVideoPlayer(
-                      videoUrl: videoUrl,
-                      title: videoTitle,
-                    ),
-                  ),
-                ),
-              ],
+              ),
             ),
           ));
           continue;
@@ -809,11 +1219,15 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
         // 3. PDF Match : 📄 [title](url) or 📕 [title](url) or lien finissant par .pdf
         final isPdfPrefix =
             line.contains('📄') || line.contains('📕') || line.contains('PDF');
-        final isPdfExtension = RegExp(r'\.(pdf)(\?|$)').hasMatch(line);
+        final isPdfExtension = RegExp(r'\.(pdf)(\?|$)', caseSensitive: false).hasMatch(line);
 
         if (simpleLinkMatch != null && (isPdfPrefix || isPdfExtension)) {
           flushTextBuffer();
-          final pdfTitle = simpleLinkMatch.group(1) ?? 'Document PDF';
+          // Le nom de fichier brut n'est JAMAIS affiché (PDF inclus).
+          final pdfTitle = cleanMediaLabel(
+            simpleLinkMatch.group(1) ?? '',
+            fallback: 'Document PDF',
+          );
           final pdfUrl = sanitizeMediaUrl(simpleLinkMatch.group(2) ?? '');
           widgets.add(Padding(
             padding: const EdgeInsets.symmetric(vertical: 12),
@@ -893,8 +1307,142 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
         padding: const EdgeInsets.all(20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
-          children: widgets,
+          children: [
+            ...widgets,
+            // Un article sans contenu doit afficher un état clair plutôt
+            // qu'une page blanche (données anciennes, import, etc.).
+            if (isEmptyArticle) _buildEmptyArticleState(isNightMode),
+          ],
         ),
+      ),
+    );
+  }
+
+  /// Formate une date en français (ex: « 12 août 2026 »).
+  String _formatDateFr(DateTime dt) {
+    const months = [
+      'janvier', 'février', 'mars', 'avril', 'mai', 'juin',
+      'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre',
+    ];
+    final local = dt.toLocal();
+    return '${local.day} ${months[local.month - 1]} ${local.year}';
+  }
+
+  /// Formate un grand nombre de vues (ex: 12 480).
+  String _formatCount(int count) {
+    final digits = count.toString();
+    final buffer = StringBuffer();
+    for (var i = 0; i < digits.length; i++) {
+      if (i > 0 && (digits.length - i) % 3 == 0) buffer.write(' ');
+      buffer.write(digits[i]);
+    }
+    return buffer.toString();
+  }
+
+  /// Petit badge coloré indiquant le type de publication.
+  Widget _buildTypeChip(String pubType, bool isNightMode) {
+    final (label, icon) = switch (pubType) {
+      'magazine' => ('Magazine', Icons.auto_stories_rounded),
+      'journal' => ('Journal', Icons.newspaper_rounded),
+      'report' => ('Rapport', Icons.insert_drive_file_rounded),
+      'ebook' => ('E-book', Icons.menu_book_rounded),
+      _ => ('Article', Icons.article_rounded),
+    };
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: isNightMode
+            ? const Color(0xFF2C74B3).withValues(alpha: 0.25)
+            : const Color(0xFF2C74B3).withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: const Color(0xFF2C74B3).withValues(alpha: 0.4),
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 13, color: const Color(0xFF2C74B3)),
+          const SizedBox(width: 5),
+          Text(
+            label.toUpperCase(),
+            style: const TextStyle(
+              color: Color(0xFF2C74B3),
+              fontSize: 10,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0.5,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFeaturedChip() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: Colors.amber.shade100,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.amber.shade300),
+      ),
+      child: const Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.star_rounded, size: 13, color: Color(0xFFB45309)),
+          SizedBox(width: 5),
+          Text(
+            'À LA UNE',
+            style: TextStyle(
+              color: Color(0xFFB45309),
+              fontSize: 10,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0.5,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEmptyArticleState(bool isNightMode) {
+    return Container(
+      margin: const EdgeInsets.only(top: 24),
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+      decoration: BoxDecoration(
+        color: isNightMode ? const Color(0xFF1E1E1E) : Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: isNightMode ? Colors.white10 : Colors.grey.shade200,
+        ),
+      ),
+      child: Column(
+        children: [
+          Icon(
+            Icons.article_outlined,
+            size: 44,
+            color: isNightMode ? Colors.white38 : Colors.grey.shade400,
+          ),
+          const SizedBox(height: 12),
+          Text(
+            "Le contenu de cet article n'est pas encore disponible.",
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w600,
+              color: isNightMode ? Colors.white70 : Colors.black87,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Revenez bientôt : la rédaction finalise cet article.',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 13,
+              color: isNightMode ? Colors.white38 : Colors.grey.shade600,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -926,6 +1474,62 @@ class FullScreenPdfViewer extends StatelessWidget {
         onDocumentLoadFailed: (details) {
           debugPrint('Failed to load fullscreen PDF: ${details.description}');
         },
+      ),
+    );
+  }
+}
+
+/// Visionneuse d'image plein écran, avec zoom (pincement), comme le mode
+/// plein écran du PDF. Le nom de fichier n'est jamais affiché.
+class FullScreenImageViewer extends StatelessWidget {
+  final String imageUrl;
+  final String title;
+
+  const FullScreenImageViewer({
+    super.key,
+    required this.imageUrl,
+    this.title = '',
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: Colors.black,
+        foregroundColor: Colors.white,
+        title: Text(
+          title.isNotEmpty ? title : 'Image',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        leading: IconButton(
+          icon: const Icon(Icons.close_rounded),
+          onPressed: () => Navigator.pop(context),
+        ),
+      ),
+      body: InteractiveViewer(
+        minScale: 0.8,
+        maxScale: 5.0,
+        panEnabled: true,
+        child: Center(
+          child: Image.network(
+            imageUrl,
+            fit: BoxFit.contain,
+            errorBuilder: (context, error, stackTrace) => const Center(
+              child: Text(
+                'Image non disponible',
+                style: TextStyle(color: Colors.white70),
+              ),
+            ),
+            loadingBuilder: (context, child, progress) {
+              if (progress == null) return child;
+              return const Center(
+                child: CircularProgressIndicator(),
+              );
+            },
+          ),
+        ),
       ),
     );
   }

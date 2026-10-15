@@ -1,12 +1,23 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../../core/services/auth_service.dart';
 
 class PosterDashboardScreen extends ConsumerWidget {
   const PosterDashboardScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final user = ref.watch(authServiceProvider).currentUser;
+    // Priorité : nom de l'entreprise (raison sociale saisie par
+    // l'éditeur) > nom personnel > nom d'utilisateur > repli générique.
+    final displayName = (user?.companyName?.isNotEmpty ?? false)
+        ? user!.companyName!
+        : (user?.displayName?.isNotEmpty ?? false)
+            ? user!.displayName!
+            : (user?.username.isNotEmpty ?? false)
+                ? user!.username
+                : 'Éditeur';
     final cards = [
       _PosterCardData(
         title: 'Mes articles',
@@ -14,6 +25,13 @@ class PosterDashboardScreen extends ConsumerWidget {
         icon: Icons.article_rounded,
         route: '/poster/my-articles',
         color: const Color(0xFFEA580C), // Orange 600
+      ),
+      _PosterCardData(
+        title: 'Mon niveau',
+        subtitle: 'Palier actuel et progression',
+        icon: Icons.workspace_premium_rounded,
+        route: '/poster/my-subscription',
+        color: const Color(0xFFC2410C), // Orange 700
       ),
       _PosterCardData(
         title: 'Créer un article',
@@ -51,17 +69,17 @@ class PosterDashboardScreen extends ConsumerWidget {
         color: const Color(0xFFC2410C), // Orange 700
       ),
       _PosterCardData(
-        title: 'Mon profil éditeur',
-        subtitle: 'Informations publiques',
+        title: 'Mon profil public',
+        subtitle: 'Informations affichées aux lecteurs',
         icon: Icons.storefront_rounded,
         route: '/poster/profile',
         color: const Color(0xFFFB923C), // Orange 400
       ),
       _PosterCardData(
-        title: 'Roadmap',
-        subtitle: 'Fonctionnalités à venir',
-        icon: Icons.construction_rounded,
-        route: '/poster/feature-roadmap',
+        title: 'Mes abonnés',
+        subtitle: 'Lecteurs abonnés à vos offres',
+        icon: Icons.people_alt_rounded,
+        route: '/poster/subscribers',
         color: const Color(0xFFB45309), // Amber 700
       ),
     ];
@@ -100,7 +118,7 @@ class PosterDashboardScreen extends ConsumerWidget {
                 SliverToBoxAdapter(
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(20, 20, 20, 30),
-                    child: _buildWelcomeBanner(),
+                    child: _buildWelcomeBanner(displayName),
                   ),
                 ),
                 SliverPadding(
@@ -130,7 +148,7 @@ class PosterDashboardScreen extends ConsumerWidget {
     );
   }
 
-  Widget _buildWelcomeBanner() {
+  Widget _buildWelcomeBanner(String displayName) {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(24),
@@ -154,18 +172,20 @@ class PosterDashboardScreen extends ConsumerWidget {
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
-              children: const [
+              children: [
                 Text(
-                  'Bienvenue, Éditeur !',
-                  style: TextStyle(
+                  'Bienvenue, $displayName !',
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
                     color: Colors.white,
                     fontSize: 26,
                     fontWeight: FontWeight.w900,
                     letterSpacing: -0.5,
                   ),
                 ),
-                SizedBox(height: 8),
-                Text(
+                const SizedBox(height: 8),
+                const Text(
                   'Gérez vos publications, analysez vos statistiques et engagez vos lecteurs depuis votre espace professionnel.',
                   style: TextStyle(
                     color: Colors.white70,

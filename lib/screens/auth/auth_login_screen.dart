@@ -1,9 +1,13 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:webview_flutter/webview_flutter.dart';
 import '../../core/api/api_client.dart';
+import '../../core/exceptions/failures.dart';
 import '../../core/services/auth_service.dart';
 /// Écran de connexion / inscription pour la stack Riverpod + GoRouter.
 class AuthLoginScreen extends ConsumerStatefulWidget {
@@ -21,6 +25,12 @@ class _AuthLoginScreenState extends ConsumerState<AuthLoginScreen> {
   final _passwordCtrl = TextEditingController();
   final _passwordConfirmCtrl = TextEditingController();
   final _nameCtrl = TextEditingController();
+  final _phoneCtrl = TextEditingController();
+  final _companyNameCtrl = TextEditingController();
+  /// Rôle choisi lors de l'inscription : 'reader' (lecteur) ou 'publisher'
+  /// (éditeur). L'éditeur s'inscrit lui-même puis se connecte et poursuit
+  /// son processus initial (vérification de légitimité) — voir backend.
+  String _registerRole = 'reader';
   late bool _isRegister;
   bool _obscure = true;
   bool _isLoading = false;
@@ -34,6 +44,55 @@ class _AuthLoginScreenState extends ConsumerState<AuthLoginScreen> {
     super.initState();
     _isRegister = widget.initialRegisterMode;
     _checkBackend();
+    if (kIsWeb) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _checkWebOAuthCallback();
+      });
+    }
+  }
+
+  Future<void> _checkWebOAuthCallback() async {
+    final uri = Uri.base;
+    String? token = uri.queryParameters['access_token'];
+    if ((token == null || token.isEmpty) && uri.fragment.isNotEmpty) {
+      String cleanFrag = uri.fragment;
+      if (cleanFrag.startsWith('/')) cleanFrag = cleanFrag.substring(1);
+      cleanFrag = cleanFrag.replaceAll('#_=_', '').replaceAll('_=_', '');
+      if (cleanFrag.contains('access_token=')) {
+        try {
+          final fragUri = Uri.parse('?$cleanFrag');
+          token = fragUri.queryParameters['access_token'];
+        } catch (_) {}
+        if (token == null || token.isEmpty) {
+          final match = RegExp(r'access_token=([^&]+)').firstMatch(cleanFrag);
+          if (match != null) {
+            token = match.group(1);
+          }
+        }
+      }
+    }
+    if (token != null && token.isNotEmpty) {
+      setState(() => _isLoading = true);
+      try {
+        await ref.read(authServiceProvider).signInWithFacebookToken(token);
+        if (mounted) context.go('/');
+      } on EmailVerificationRequiredException catch (e) {
+        if (mounted) {
+          context.pushReplacement(
+            '/auth/verification'
+            '?email=${Uri.encodeComponent(e.email)}'
+            '&mode=activate',
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          final msg = e is Failure ? e.message : e.toString().replaceAll('Exception: ', '');
+          _showError(msg);
+        }
+      } finally {
+        if (mounted) setState(() => _isLoading = false);
+      }
+    }
   }
 
   Future<void> _checkBackend() async {
@@ -75,7 +134,18 @@ class _AuthLoginScreenState extends ConsumerState<AuthLoginScreen> {
     _passwordCtrl.dispose();
     _passwordConfirmCtrl.dispose();
     _nameCtrl.dispose();
+    _phoneCtrl.dispose();
+    _companyNameCtrl.dispose();
     super.dispose();
+  }
+
+  String get _formattedEmail {
+    final raw = _emailCtrl.text.trim();
+    if (raw.isEmpty) return raw;
+    if (!raw.contains('@')) {
+      return '$raw@gmail.com';
+    }
+    return raw;
   }
 
   Future<void> _submit() async {
@@ -83,22 +153,64 @@ class _AuthLoginScreenState extends ConsumerState<AuthLoginScreen> {
     setState(() => _isLoading = true);
     try {
       final auth = ref.read(authServiceProvider);
+      final email = _formattedEmail;
       if (_isRegister) {
         await auth.signUpWithEmailAndPassword(
-          _emailCtrl.text.trim(),
+          email,
           _passwordCtrl.text,
           name: _nameCtrl.text.trim().isEmpty ? null : _nameCtrl.text.trim(),
+          phone: _phoneCtrl.text.trim(),
+          role: _registerRole,
+          companyName: _registerRole == 'publisher'
+              ? _companyNameCtrl.text.trim()
+              : null,
         );
+        if (mounted) {
+          // ─── ACTIVATION DU COMPTE PAR EMAIL (note Dr. Sissoko) ───────
+          // Le compte vient d'être créé NON VÉRIFIÉ : l'utilisateur doit
+          // saisir le code OTP (15 min) reçu par email pour activer son
+          // compte avant de pouvoir se connecter.
+          context.pushReplacement(
+            '/auth/verification'
+            '?email=${Uri.encodeComponent(email)}'
+            '&mode=activate',
+          );
+        }
       } else {
         await auth.signInWithEmailAndPassword(
-          _emailCtrl.text.trim(),
+          email,
           _passwordCtrl.text,
         );
+        if (mounted) context.go('/');
       }
-      if (mounted) context.go('/');
     } catch (e) {
       if (mounted) {
-        _showError(e.toString());
+        // ─── COMPTE PAS ENCORE ACTIVÉ (note Dr. Sissoko) ────────────────
+        // Le backend refuse la connexion tant que l'email n'a pas été
+        // validé par le code OTP : on envoie directement l'utilisateur
+        // sur l'écran de saisie du code au lieu d'afficher une erreur
+        // générique qui le laisserait bloqué.
+        String? code;
+        if (e is ServerFailure) {
+          final raw = e.errors?['code'];
+          code = raw is List ? raw.first?.toString() : raw?.toString();
+        } else if (e is AuthFailure) {
+          final raw = e.errors?['code'];
+          code = raw is List ? raw.first?.toString() : raw?.toString();
+        }
+        if (code == 'email_not_verified') {
+          context.pushReplacement(
+            '/auth/verification'
+            '?email=${Uri.encodeComponent(_formattedEmail)}'
+            '&mode=activate',
+          );
+          return;
+        }
+
+        final msg = e is Failure
+            ? e.message
+            : e.toString().replaceAll('Exception: ', '').trim();
+        _showError(msg);
       }
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -106,11 +218,29 @@ class _AuthLoginScreenState extends ConsumerState<AuthLoginScreen> {
   }
 
   void _showError(String message) {
+    final cleanMsg = message.replaceAll('Exception: ', '').trim();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(message),
+        content: Row(
+          children: [
+            const Icon(Icons.error_outline, color: Colors.white, size: 22),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                cleanMsg,
+                style: GoogleFonts.poppins(
+                  color: Colors.white,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+          ],
+        ),
         backgroundColor: const Color(0xFFE63946),
         behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        margin: const EdgeInsets.all(16),
       ),
     );
   }
@@ -197,21 +327,122 @@ class _AuthLoginScreenState extends ConsumerState<AuthLoginScreen> {
                         const SizedBox(height: 24),
                         
                         if (_isRegister) ...[
+                          // ─── CHOIX DU TYPE DE COMPTE À L'INSCRIPTION ───
+                          // Lecteur ou Éditeur : l'éditeur peut s'inscrire
+                          // lui-même (puis se connecter et poursuivre son
+                          // processus initial côté espace Éditeur).
+                          Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(
+                                color: const Color(0xFF56B4E9)
+                                    .withValues(alpha: 0.6),
+                              ),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Je m\'inscris en tant que',
+                                  style: GoogleFonts.poppins(
+                                    color: Colors.white,
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                const SizedBox(height: 10),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: _roleChip(
+                                        value: 'reader',
+                                        label: '📖 Lecteur',
+                                        selected: _registerRole == 'reader',
+                                      ),
+                                    ),
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: _roleChip(
+                                        value: 'publisher',
+                                        label: '🗞️ Éditeur',
+                                        selected: _registerRole == 'publisher',
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 16),
                           _field(
                             controller: _nameCtrl,
                             label: 'Nom complet',
                             icon: Icons.person_outline,
+                            validator: (v) {
+                              if (_isRegister && (v == null || v.trim().isEmpty)) {
+                                return 'Le nom complet est requis';
+                              }
+                              return null;
+                            },
                           ),
                           const SizedBox(height: 16),
+                          // ─── NUMÉRO DE TÉLÉPHONE OBLIGATOIRE ──────────
+                          // Exigé pour TOUT type de compte à la création
+                          // (note Dr. Sissoko) — moyen de contact réel et
+                          // premier rempart contre les comptes fantômes.
+                          _field(
+                            controller: _phoneCtrl,
+                            label: 'Numéro de téléphone',
+                            icon: Icons.phone_android_rounded,
+                            keyboardType: TextInputType.phone,
+                            validator: (v) {
+                              if (_isRegister) {
+                                if (v == null || v.trim().isEmpty) {
+                                  return 'Le numéro de téléphone est requis';
+                                }
+                                final digits = v.replaceAll(RegExp(r'[^0-9+]'), '');
+                                if (digits.length < 8) {
+                                  return 'Numéro de téléphone invalide (au moins 8 chiffres)';
+                                }
+                              }
+                              return null;
+                            },
+                          ),
+                          const SizedBox(height: 16),
+                          if (_registerRole == 'publisher') ...[
+                            _field(
+                              controller: _companyNameCtrl,
+                              label: "Nom de l'entreprise / de la presse",
+                              icon: Icons.business_rounded,
+                              validator: (v) {
+                                if (_isRegister && _registerRole == 'publisher') {
+                                  if (v == null || v.trim().isEmpty) {
+                                    return 'Le nom de la presse/entreprise est requis';
+                                  }
+                                }
+                                return null;
+                              },
+                            ),
+                            const SizedBox(height: 16),
+                          ],
                         ],
                         _field(
                           controller: _emailCtrl,
-                          label: 'Email',
+                          label: 'Email (ex: nom@domaine.com)',
                           icon: Icons.email_outlined,
                           keyboardType: TextInputType.emailAddress,
                           validator: (v) {
-                            if (v == null || v.isEmpty) return 'L\'adresse e-mail est requise';
-                            if (!v.contains('@')) return 'L\'adresse e-mail n\'est pas valide';
+                            if (v == null || v.trim().isEmpty) {
+                              return 'L\'adresse email est requise';
+                            }
+                            final raw = v.trim();
+                            final formatted = raw.contains('@') ? raw : '$raw@gmail.com';
+                            final emailRegex = RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$');
+                            if (!emailRegex.hasMatch(formatted)) {
+                              return 'Veuillez entrer une adresse email valide';
+                            }
                             return null;
                           },
                         ),
@@ -236,7 +467,7 @@ class _AuthLoginScreenState extends ConsumerState<AuthLoginScreen> {
                               return 'Le mot de passe est requis';
                             }
                             if (v.length < 6) {
-                              return 'Au moins 6 caractères';
+                              return 'Le mot de passe doit contenir au moins 6 caractères';
                             }
                             return null;
                           },
@@ -259,11 +490,13 @@ class _AuthLoginScreenState extends ConsumerState<AuthLoginScreen> {
                               onPressed: () => setState(() => _obscure = !_obscure),
                             ),
                             validator: (v) {
-                              if (v == null || v.isEmpty) {
-                                return 'La confirmation est requise';
-                              }
-                              if (v != _passwordCtrl.text) {
-                                return 'Les mots de passe ne correspondent pas';
+                              if (_isRegister) {
+                                if (v == null || v.isEmpty) {
+                                  return 'La confirmation du mot de passe est requise';
+                                }
+                                if (v != _passwordCtrl.text) {
+                                  return 'Les mots de passe ne correspondent pas';
+                                }
                               }
                               return null;
                             },
@@ -414,12 +647,143 @@ class _AuthLoginScreenState extends ConsumerState<AuthLoginScreen> {
     );
   }
 
+  Future<void> _handleSocialLogin(String type) async {
+    if (type == 'Google') {
+      // ─── VRAIE CONNEXION GOOGLE ─────────────────────────────────────────
+      // Ouvre le sélecteur de compte natif Google (plus de formulaire
+      // "tapez votre email" maison) ; le backend vérifie lui-même le jeton
+      // auprès de Google avant d'ouvrir une session (accounts.GoogleAuthView).
+      setState(() => _isLoading = true);
+      try {
+        await ref.read(authServiceProvider).signInWithGoogle();
+        if (mounted) context.go('/');
+      } on SocialLoginCancelledException {
+        // Annulation silencieuse : l'utilisateur a fermé le sélecteur.
+      } on EmailVerificationRequiredException catch (e) {
+        // ─── ACTIVATION PAR EMAIL OBLIGATOIRE (demande explicite) ───────
+        // Un compte créé via Google doit activer son email avec le code OTP
+        // (15 min) avant de pouvoir se connecter — même écran que
+        // l'inscription classique.
+        if (mounted) {
+          context.pushReplacement(
+            '/auth/verification'
+            '?email=${Uri.encodeComponent(e.email)}'
+            '&mode=activate',
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          final msg = e is Failure ? e.message : e.toString().replaceAll('Exception: ', '');
+          _showError(msg.contains('503')
+              ? "Connexion Google pas encore configurée sur ce serveur."
+              : msg);
+        }
+      } finally {
+        if (mounted) setState(() => _isLoading = false);
+      }
+      return;
+    }
+
+    // ─── CONNEXION FACEBOOK (WebView OAuth) ─────────────────────────────────
+    setState(() => _isLoading = true);
+    try {
+      // FACEBOOK_APP_ID de la config backend (visible depuis .env)
+      const appId = '28198185769777617';
+      final redirectUri = kIsWeb
+          ? (Uri.base.origin.contains('digitalpress')
+              ? 'https://www.digitalpress-ml.com/accounts/auth/facebook/callback/'
+              : '${Uri.base.origin}/accounts/auth/facebook/callback/')
+          : 'https://www.facebook.com/connect/login_success.html';
+      final oauthUrl =
+          'https://www.facebook.com/dialog/oauth'
+          '?client_id=$appId'
+          '&redirect_uri=${Uri.encodeComponent(redirectUri)}'
+          '&scope=email,public_profile'
+          '&response_type=token';
+
+      if (kIsWeb) {
+        // Sur Web : redirection vers la mire Facebook OAuth
+        await launchUrl(Uri.parse(oauthUrl), webOnlyWindowName: '_self');
+        return;
+      }
+
+      if (!mounted) return;
+      final accessToken = await Navigator.of(context).push<String>(
+        MaterialPageRoute(
+          builder: (_) => _FacebookOAuthWebView(
+            oauthUrl: oauthUrl,
+            redirectUri: redirectUri,
+          ),
+        ),
+      );
+
+      if (accessToken != null && accessToken.isNotEmpty) {
+        await ref.read(authServiceProvider).signInWithFacebookToken(accessToken);
+        if (mounted) context.go('/');
+      }
+    } on SocialLoginCancelledException {
+      // Annulation silencieuse
+    } on EmailVerificationRequiredException catch (e) {
+      if (mounted) {
+        context.pushReplacement(
+          '/auth/verification'
+          '?email=${Uri.encodeComponent(e.email)}'
+          '&mode=activate',
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        final msg = e is Failure ? e.message : e.toString().replaceAll('Exception: ', '');
+        _showError(msg);
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+
+  /// Petit sélecteur de rôle pour l'inscription (Lecteur / Éditeur).
+  Widget _roleChip({
+    required String value,
+    required String label,
+    required bool selected,
+  }) {
+    return GestureDetector(
+      onTap: () => setState(() => _registerRole = value),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        decoration: BoxDecoration(
+          color: selected
+              ? const Color(0xFF336B82)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: selected
+                ? const Color(0xFF56B4E9)
+                : Colors.white24,
+            width: 1.2,
+          ),
+        ),
+        child: Text(
+          label,
+          textAlign: TextAlign.center,
+          style: GoogleFonts.poppins(
+            color: selected ? Colors.white : const Color(0xFFE5E7EB),
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildSocialButton(String type, bool isRegister) {
     final isGoogle = type == 'Google';
     return Column(
       children: [
         InkWell(
-          onTap: () {},
+          onTap: _isLoading ? null : () => _handleSocialLogin(type),
           borderRadius: BorderRadius.circular(30),
           child: Container(
             width: 60,
@@ -479,6 +843,12 @@ class _AuthLoginScreenState extends ConsumerState<AuthLoginScreen> {
       );
     }
     final online = _backendOnline!;
+    // ─── PRODUCTION : rien n'est affiché quand le serveur répond — le
+    // bandeau n'apparaît QUE si le serveur est indisponible (le message
+    // technique « digital-press-api • ok • v1 » a été supprimé).
+    if (online) {
+      return const SizedBox.shrink();
+    }
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -574,3 +944,80 @@ class _AuthLoginScreenState extends ConsumerState<AuthLoginScreen> {
   }
 }
 
+/// WebView Facebook OAuth — s'ouvre en plein écran, intercepte la redirection
+/// pour extraire l'access_token Facebook et le renvoyer à l'écran de connexion.
+class _FacebookOAuthWebView extends StatefulWidget {
+  final String oauthUrl;
+  final String redirectUri;
+
+  const _FacebookOAuthWebView({
+    required this.oauthUrl,
+    required this.redirectUri,
+  });
+
+  @override
+  State<_FacebookOAuthWebView> createState() => _FacebookOAuthWebViewState();
+}
+
+class _FacebookOAuthWebViewState extends State<_FacebookOAuthWebView> {
+  late final WebViewController _controller;
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = WebViewController()
+      ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..setNavigationDelegate(
+        NavigationDelegate(
+          onNavigationRequest: (request) {
+            if (request.url.startsWith(widget.redirectUri) ||
+                request.url.startsWith('https://www.facebook.com/connect/login_success.html')) {
+              final uri = Uri.parse(request.url.replaceFirst('#', '?'));
+              final token = uri.queryParameters['access_token'];
+              if (token != null && token.isNotEmpty) {
+                Navigator.of(context).pop(token);
+                return NavigationDecision.prevent;
+              }
+              Navigator.of(context).pop();
+              return NavigationDecision.prevent;
+            }
+            return NavigationDecision.navigate;
+          },
+          onPageStarted: (url) {
+            // Intercepte la redirection Facebook avec le token dans le fragment URL
+            if (url.startsWith(widget.redirectUri) ||
+                url.startsWith('https://www.facebook.com/connect/login_success.html')) {
+              final uri = Uri.parse(url.replaceFirst('#', '?'));
+              final token = uri.queryParameters['access_token'];
+              if (token != null && token.isNotEmpty) {
+                Navigator.of(context).pop(token);
+                return;
+              }
+              Navigator.of(context).pop();
+            }
+          },
+          onPageFinished: (_) => setState(() => _isLoading = false),
+        ),
+      )
+      ..loadRequest(Uri.parse(widget.oauthUrl));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Connexion Facebook'),
+        backgroundColor: const Color(0xFF1877F2),
+        foregroundColor: Colors.white,
+      ),
+      body: Stack(
+        children: [
+          WebViewWidget(controller: _controller),
+          if (_isLoading)
+            const Center(child: CircularProgressIndicator()),
+        ],
+      ),
+    );
+  }
+}

@@ -15,10 +15,12 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 /// Handler global pour les messages reçus quand l'app est fermée ou en arrière-plan.
 /// DOIT être une fonction de haut niveau (pas une méthode de classe).
 @pragma('vm:entry-point')
-Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
-  if (kDebugMode) {
-    print('[FCM Background] Message reçu : ${message.messageId}');
-  }
+Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  try {
+    if (kDebugMode) {
+      print('[FCM Background] Message reçu : ${message.messageId}');
+    }
+  } catch (_) {}
 }
 
 // ---------------------------------------------------------------------------
@@ -127,25 +129,28 @@ class NotificationService {
       }
     }
 
-    // ── 1. Handler background (doit être enregistré très tôt) ─────────────
-    FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+    // ── 1. Handler background (enregistré aussi dans main.dart) ─────────────
+    FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
 
-    // ── 2. Demande de permission ───────────────────────────────────────────
-    final settings = await _fcm!.requestPermission(
-      alert: true,
-      badge: true,
-      sound: true,
-      announcement: false,
-      provisional: false,
-    );
+    // ── 2. Vérification silencieuse et demande d'autorisation si nécessaire ──
+    var settings = await _fcm!.getNotificationSettings();
+    if (settings.authorizationStatus == AuthorizationStatus.notDetermined) {
+      settings = await _fcm!.requestPermission(
+        alert: true,
+        badge: true,
+        sound: true,
+        announcement: false,
+        provisional: false,
+      );
+    }
 
     if (settings.authorizationStatus != AuthorizationStatus.authorized &&
         settings.authorizationStatus != AuthorizationStatus.provisional) {
-      _logger.w('[FCM] Permissions refusées par l\'utilisateur.');
+      _logger.w('[FCM] Permissions non accordées.');
       return;
     }
 
-    _logger.i('[FCM] Permissions accordées.');
+    _logger.i('[FCM] Permissions confirmées.');
 
     // ── 3. Token FCM → enregistrement backend ─────────────────────────────
     final token = await _fcm!.getToken();

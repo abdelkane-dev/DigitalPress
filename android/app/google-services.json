@@ -1,26 +1,44 @@
 {
   "project_info": {
-    "project_number": "959894274903",
-    "project_id": "digitalpress-ec022",
-    "storage_bucket": "digitalpress-ec022.firebasestorage.app"
+    "project_number": "601381319647",
+    "project_id": "digitalpress-ec022-f1cce",
+    "storage_bucket": "digitalpress-ec022-f1cce.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:959894274903:android:33d33831976b1a6b143412",
+        "mobilesdk_app_id": "1:601381319647:android:2b551fe57e175bdf5aca6a",
         "android_client_info": {
-          "package_name": "com.example.digitalpress"
+          "package_name": "com.digitalpress.app"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "601381319647-f2h667tnt9rmh3m5kuumi61465cgvns9.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.digitalpress.app",
+            "certificate_hash": "a491478198ff77494f9b7bf5ff00fb8fc4689feb"
+          }
+        },
+        {
+          "client_id": "601381319647-jf28ssa1sde4h9aflpsheqvl7defncie.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
-          "current_key": "AIzaSyC_13kxVaywrPjlyGFQXZl5h0vuOBofaUc"
+          "current_key": "AIzaSyC0bEwIRQ4o79cc12zKqkTrBiWxivsklBs"
         }
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "601381319647-jf28ssa1sde4h9aflpsheqvl7defncie.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
         }
       }
     }

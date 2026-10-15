@@ -12,6 +12,10 @@ class ApiConstants {
   static const String passwordResetVerify = 'accounts/password-reset/verify/';
   static const String passwordResetConfirm = 'accounts/password-reset/confirm/';
 
+  // Activation du compte par email (OTP 15 min — note Dr. Sissoko)
+  static const String verifyEmail = 'accounts/verify-email/';
+  static const String resendEmailVerification = 'accounts/resend-email-verification/';
+
   // Modération / avertissements éditeurs
   static const String myWarnings = 'accounts/me/warnings/';
   static const String issueWarning = 'accounts/warnings/issue/';
@@ -26,6 +30,17 @@ class ApiConstants {
   static const String adminReviews = 'publications/admin/reviews/';
   static String publicationFile(String id) => 'publications/$id/file/';
   static const String mediaUpload = 'publications/upload-media/';
+
+  // « À la une » : vitrine accueil + mise en avant payante de l'éditeur
+  static const String featuredPublications = 'publications/featured/';
+  static String featurePublication(int id) => 'publications/$id/feature/';
+  static String verifyFeaturePayment(int id) =>
+      'publications/$id/feature/verify/';
+
+  // Admin : modération des mises en avant + éditeur : historique des vues
+  static const String adminFeaturedPromotions =
+      'publications/admin/featured-promotions/';
+  static const String viewsHistory = 'publications/my/views-history/';
 
   // Abonnements
   static const String abonnements = 'abonnements/';
@@ -42,9 +57,12 @@ class ApiConstants {
   static const String journalEntreprise = 'entreprise/comptabilite/journal/';
   static const String soldeEditeur = 'entreprise/comptabilite/solde/';
   static const String demandeRetrait = 'paiements/retrait/demander/';
+  static const String withdrawalOtp = 'paiements/retrait/otp/';
   static const String mesDemandesRetrait = 'paiements/retrait/mes-demandes/';
   static const String adminDemandesRetrait = 'paiements/admin/retraits/';
   static const String adminSoldesEditeurs = 'admin/editeurs/soldes/';
+  static const String remboursementsAdmin = 'admin/comptabilite/remboursements/';
+  static const String remboursementsEditeur = 'entreprise/comptabilite/remboursements/';
   static const String reconciliation = 'admin/comptabilite/reconciliation/';
   static const String exportCsv = 'admin/comptabilite/export/';
   static const String exportCsvEditeur = 'entreprise/comptabilite/export/';

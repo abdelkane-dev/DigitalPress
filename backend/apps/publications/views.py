@@ -1,8 +1,11 @@
+import logging
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework.throttling import ScopedRateThrottle
 from django.db.models import Q, Max, Count
 from django.shortcuts import get_object_or_404
+from django.utils.text import slugify
 from .models import (
     Publication, Category, Review, Comment, ConversationRead, HiddenConversation,
     ReaderCategory, Favorite,
@@ -13,7 +16,9 @@ from .serializers import (
     CommentSerializer, ConversationMessageSerializer,
     ReaderCategorySerializer, FavoritePublicationSerializer,
 )
-from apps.accounts.permissions import IsAdmin, IsPublisher, IsOwnerOrAdmin, IsReader
+
+logger = logging.getLogger('apps')
+from apps.accounts.permissions import IsAdmin, IsPublisher, IsOwnerOrAdmin, IsReader, IsAdminOrPublisher
 
 
 class CategoryListView(generics.ListCreateAPIView):
@@ -22,7 +27,10 @@ class CategoryListView(generics.ListCreateAPIView):
 
     def get_permissions(self):
         if self.request.method == 'POST':
-            return [permissions.IsAuthenticated()]
+            # Seuls Admin et Éditeur gèrent la taxonomie des catégories —
+            # avant ce correctif, n'importe quel Lecteur authentifié
+            # pouvait créer des catégories arbitraires (juste IsAuthenticated).
+            return [permissions.IsAuthenticated(), IsAdminOrPublisher()]
         return [permissions.AllowAny()]
 
 
@@ -52,9 +60,15 @@ class PublicationListView(generics.ListAPIView):
             qs = qs.filter(Q(title__icontains=search) | Q(description__icontains=search) | Q(tags__icontains=search))
         if category:
             normalized = category.strip()
+            cat_slug = slugify(normalized)
+            stem = normalized.rstrip('s')
+            stem_slug = cat_slug.rstrip('s')
             qs = qs.filter(
                 Q(category__slug__iexact=normalized) |
-                Q(category__name__iexact=normalized)
+                Q(category__name__iexact=normalized) |
+                Q(category__slug__iexact=cat_slug) |
+                Q(category__name__icontains=stem) |
+                Q(category__slug__icontains=stem_slug)
             )
         if pub_type:
             qs = qs.filter(pub_type=pub_type)
@@ -62,7 +76,10 @@ class PublicationListView(generics.ListAPIView):
             qs = qs.filter(is_free=(is_free.lower() == 'true'))
         if publisher_id:
             qs = qs.filter(publisher_id=publisher_id)
-        return qs
+        # Avantage réel du plan plateforme : une publication mise en avant
+        # (is_featured, limité selon le plan — voir PlatformPlan) apparaît
+        # toujours avant les autres, à recherche/filtre égal.
+        return qs.order_by('-is_featured', '-created_at')
 
 
 class PublicationDetailView(generics.RetrieveAPIView):
@@ -72,9 +89,103 @@ class PublicationDetailView(generics.RetrieveAPIView):
 
     def retrieve(self, request, *args, **kwargs):
         obj = self.get_object()
-        obj.views_count += 1
-        obj.save(update_fields=['views_count'])
+        if self._register_view_once(request, obj):
+            obj.views_count += 1
+            obj.save(update_fields=['views_count'])
+            # Trace la vue (dédupliquée) pour le calcul des tendances
+            # « À la une » (vues des dernières 48h).
+            try:
+                from .models import PublicationView
+                if request.user and request.user.is_authenticated:
+                    viewer_key = f'user_{request.user.id}'
+                else:
+                    viewer_key = f'ip_{request.META.get("REMOTE_ADDR", "unknown")}'
+                PublicationView.objects.create(
+                    publication=obj, viewer_key=viewer_key
+                )
+            except Exception:
+                logger.exception("Echec enregistrement PublicationView pour %s", obj.id)
+            self._broadcast_view_count(obj)
         return super().retrieve(request, *args, **kwargs)
+
+    def _register_view_once(self, request, obj):
+        """Anti-spam sur le compteur de vues : sans ça, rafraîchir la même
+        page en boucle (ou un script) gonfle artificiellement views_count à
+        l'infini — une métrique censée refléter un vrai lectorat perdrait
+        tout son sens (statistiques éditeur faussées, mise en avant
+        "priority_listing" trichée). On identifie le visiteur (utilisateur
+        connecté, sinon IP) et on ne compte qu'UNE SEULE vue par visiteur
+        et par publication toutes les 30 minutes."""
+        from django.core.cache import cache
+
+        if request.user and request.user.is_authenticated:
+            visitor_key = f'user_{request.user.id}'
+        else:
+            visitor_key = f'ip_{request.META.get("REMOTE_ADDR", "unknown")}'
+
+        cache_key = f'pubview:{obj.id}:{visitor_key}'
+        if cache.get(cache_key):
+            return False
+        cache.set(cache_key, True, timeout=60 * 30)  # 30 minutes
+        return True
+
+    def _broadcast_view_count(self, obj):
+        # Diffuse la mise à jour du compteur de vues en direct sur le même
+        # salon WebSocket que la conversation de cet article (réutilise la
+        # connexion déjà ouverte par quiconque a l'article affiché — pas de
+        # canal supplémentaire à gérer côté client).
+        try:
+            from asgiref.sync import async_to_sync
+            from channels.layers import get_channel_layer
+
+            channel_layer = get_channel_layer()
+            if channel_layer is None:
+                return
+            async_to_sync(channel_layer.group_send)(
+                f'conversation_{obj.id}',
+                {
+                    'type': 'new_message',
+                    'payload': {'event': 'views_updated', 'views_count': obj.views_count},
+                },
+            )
+        except Exception:
+            logger.exception("Echec diffusion WebSocket du compteur de vues pour %s", obj.id)
+
+        # Prévient aussi l'éditeur lui-même (ses statistiques changent à
+        # chaque vue) via son canal personnel — indépendant du salon de
+        # l'article, pour que son tableau de bord se mette à jour même
+        # s'il n'a pas l'article ouvert.
+        from apps.notifications.realtime import push_to_user
+        push_to_user(obj.publisher_id, 'stats_changed', {'reason': 'new_view'})
+
+
+def _check_priority_slot(user, current_instance):
+    """Vérifie que l'éditeur ne dépasse pas son quota de mise en avant
+    (max_priority_slots de son plan plateforme actif) — le seul avantage
+    réellement différencié entre plans (voir PlatformPlan). Utilisée à la
+    fois à la création et à la modification d'une publication."""
+    from rest_framework.exceptions import PermissionDenied
+
+    active_sub = user.platform_subscriptions.filter(
+        status='active'
+    ).select_related('plan').first()
+    max_slots = active_sub.plan.max_priority_slots if (active_sub and active_sub.plan) else 0
+
+    if max_slots <= 0:
+        raise PermissionDenied(
+            "Votre plan actuel n'inclut pas la mise en avant de publications. "
+            "Passez à un plan supérieur pour en bénéficier."
+        )
+
+    already_featured = Publication.objects.filter(
+        publisher=user, is_featured=True
+    ).exclude(pk=current_instance.pk if current_instance else None).count()
+
+    if already_featured >= max_slots:
+        raise PermissionDenied(
+            f"Votre plan permet de mettre en avant {max_slots} publication(s) maximum "
+            f"en même temps. Retirez-en une avant d'en ajouter une nouvelle."
+        )
 
 
 class PublisherPublicationsView(generics.ListCreateAPIView):
@@ -89,19 +200,35 @@ class PublisherPublicationsView(generics.ListCreateAPIView):
         return Publication.objects.filter(publisher=self.request.user).select_related('category')
 
     def perform_create(self, serializer):
-        # Un éditeur banni (publisher_profile.is_active=False) garde accès à
-        # son tableau de bord (avertissements, historique) mais ne peut plus
-        # publier de nouveau contenu tant que son compte n'est pas réactivé
-        # par un administrateur. Auparavant, le bannissement ne faisait que
-        # le masquer de l'annuaire public sans réellement bloquer ses actions.
+        # PublisherProfile.is_active est la source de vérité unique pour
+        # « cet éditeur a-t-il accès à la plateforme » : soit parce qu'il
+        # n'a pas (ou plus) d'abonnement plateforme actif, soit parce qu'un
+        # administrateur l'a suspendu. Dans les deux cas, il garde accès à
+        # son tableau de bord (avertissements, historique) mais ne peut pas
+        # publier de nouveau contenu.
         profile = getattr(self.request.user, 'publisher_profile', None)
         if profile and not profile.is_active:
             from rest_framework.exceptions import PermissionDenied
             raise PermissionDenied(
-                "Votre compte éditeur est actuellement suspendu par un administrateur. "
-                "Vous ne pouvez pas publier de nouveau contenu."
+                "Vous n'avez pas accès à la publication : votre compte a été suspendu "
+                "par un administrateur. Aucun paiement n'est requis sur la plateforme — "
+                "contactez le support pour plus d'informations."
             )
+
+        # ─── AVANTAGE RÉEL DES PLANS : MISE EN AVANT UNIQUEMENT ────────────
+        # Sur demande explicite : aucune limite de nombre de publications
+        # ni de restriction sur le type de contenu (vidéo comprise) —
+        # ce sont des fonctionnalités déjà existantes de la plateforme,
+        # accessibles à tout éditeur quel que soit son plan (Basique
+        # inclus). Seule la mise en avant (is_featured) est réellement
+        # limitée selon le plan, y compris si cochée dès la création.
+        if serializer.validated_data.get('is_featured') is True:
+            _check_priority_slot(self.request.user, None)
         serializer.save()
+        # (la vérification de palier éditeur se fait désormais via signal
+        # Django sur Publication, voir apps.publications.signals — couvre
+        # aussi les publications qui passent en 'published' après coup,
+        # pas seulement à la création)
 
 
 class PublicationUpdateView(generics.RetrieveUpdateDestroyAPIView):
@@ -110,10 +237,39 @@ class PublicationUpdateView(generics.RetrieveUpdateDestroyAPIView):
     def get_serializer_class(self):
         return PublicationCreateSerializer
 
+    def perform_update(self, serializer):
+        # Si l'éditeur active la mise en avant sur cette publication,
+        # vérifier qu'il ne dépasse pas le quota de son plan — le seul
+        # avantage réellement différencié entre plans (voir plus haut).
+        if serializer.validated_data.get('is_featured') is True:
+            _check_priority_slot(self.request.user, serializer.instance)
+        serializer.save()
+
     def get_queryset(self):
         if self.request.user.role == 'admin':
             return Publication.objects.all()
         return Publication.objects.filter(publisher=self.request.user)
+
+
+class PublicationResetStatsView(APIView):
+    """POST /api/publications/my/<pk>/reset-stats/
+
+    Remet à zéro les compteurs d'une publication de l'éditeur connecté
+    (vues, téléchargements, et historique des vues tracées) — l'éditeur
+    repart d'une page blanche pour ses statistiques.
+    """
+    permission_classes = [permissions.IsAuthenticated, IsPublisher]
+
+    def post(self, request, pk):
+        pub = Publication.objects.filter(pk=pk, publisher=request.user).first()
+        if not pub:
+            return Response({'error': 'Publication introuvable ou pas la vôtre.'}, status=404)
+        pub.views_count = 0
+        pub.downloads_count = 0
+        pub.save(update_fields=['views_count', 'downloads_count'])
+        from .models import PublicationView
+        PublicationView.objects.filter(publication=pub).delete()
+        return Response({'detail': 'Statistiques remises à zéro.', 'views_count': 0, 'downloads_count': 0})
 
 
 class AdminPublicationsView(generics.ListAPIView):
@@ -160,7 +316,7 @@ class ReviewCreateView(generics.CreateAPIView):
                 send_notification(
                     user=pub.publisher,
                     type_notif='new_comment',
-                    title=f'Nouvel avis sur « {pub.title[:40]} »',
+                    title=f'Nouvel avis sur « {pub.title[:40]} »',
                     message=f'{author_name} a laissé un avis sur votre article.',
                     data={'article_id': str(pub.id)},
                 )
@@ -217,6 +373,7 @@ class ConversationFeedView(APIView):
                 'type': 'review',
                 'author_id': str(r.reader_id),
                 'author_name': r.reader.name or r.reader.username,
+                'author_badge': r.reader.badge_label,
                 'text': r.comment or '',
                 'rating': r.rating,
                 'parent_id': None,
@@ -230,6 +387,7 @@ class ConversationFeedView(APIView):
                 'type': 'comment',
                 'author_id': str(c.author_id),
                 'author_name': c.author.name or c.author.username,
+                'author_badge': c.author.badge_label,
                 'text': c.text,
                 'rating': None,
                 'parent_id': f'comment-{c.parent_id}' if c.parent_id else None,
@@ -272,7 +430,7 @@ class CommentCreateView(generics.CreateAPIView):
                 send_notification(
                     user=pub.publisher,
                     type_notif='new_comment',
-                    title=f'Nouveau commentaire sur « {pub.title[:40]} »',
+                    title=f'Nouveau commentaire sur « {pub.title[:40]} »',
                     message=f'{author_name} a commenté votre article.',
                     data=article_data,
                 )
@@ -337,29 +495,10 @@ class PublicationFileAccessView(APIView):
 
     @staticmethod
     def _has_full_access(user, pub):
-        if pub.is_free or pub.prix == 0:
-            return True
-        if user == pub.publisher or user.role == 'admin':
-            return True
-
-        from apps.abonnements.models import Abonnement
-        from apps.paiements.models import Transaction
-        from django.utils import timezone
-
-        now = timezone.now()
-        if Abonnement.objects.filter(
-            reader=user, status='active', end_date__gt=now
-        ).filter(
-            Q(publication=pub) | Q(publisher=pub.publisher)
-        ).exists():
-            return True
-
-        return Transaction.objects.filter(
-            payer=user,
-            publication=pub,
-            type_transaction='purchase',
-            status='success'
-        ).exists()
+        # Déléguée à Publication.is_accessible_by (source unique de vérité,
+        # voir models.py) — anciennement dupliquée ici ET dans
+        # PublicationSerializer, désormais fusionnées en une seule règle.
+        return pub.is_accessible_by(user)
 
 
 class ConversationListView(APIView):
@@ -574,20 +713,46 @@ class FavoriteRemoveView(APIView):
 class MediaUploadView(APIView):
     """POST /api/publications/upload-media/
 
-    Permet d'uploader n'importe quel fichier média (image, PDF, vidéo)
-    et de retourner son URL absolue sur le serveur.
+    Permet d'uploader un fichier média (image, PDF, vidéo) et de retourner
+    son URL absolue sur le serveur.
     """
     permission_classes = [permissions.IsAuthenticated]
+    # ─── RATE LIMITING UPLOADS ─────────────────────────────────────────────
+    # Limite à 10 uploads/minute par utilisateur — empêche le flood de
+    # fichiers (déni de service par remplissage disque) tout en laissant
+    # un éditeur publier confortablement même avec un article volumineux.
+    throttle_scope = 'upload'
+    throttle_classes = [ScopedRateThrottle]
+
+    # ─── SÉCURITÉ ─────────────────────────────────────────────────────────
+    ALLOWED_EXTENSIONS = {
+        '.jpg', '.jpeg', '.png', '.gif', '.webp',
+        '.pdf', '.mp4', '.mov', '.webm',
+    }
+    MAX_UPLOAD_SIZE = 50 * 1024 * 1024  # 50 Mo
 
     def post(self, request, *args, **kwargs):
+        import os
         file_obj = request.FILES.get('file')
         if not file_obj:
             return Response({'error': 'Aucun fichier fourni.'}, status=status.HTTP_400_BAD_REQUEST)
 
+        ext = os.path.splitext(file_obj.name)[1].lower()
+        if ext not in self.ALLOWED_EXTENSIONS:
+            return Response(
+                {'error': f"Type de fichier non autorisé ({ext or 'inconnu'})."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if file_obj.size > self.MAX_UPLOAD_SIZE:
+            return Response(
+                {'error': 'Fichier trop volumineux (50 Mo maximum).'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         # Enregistrer dans media/publications/uploads/
         from django.core.files.storage import default_storage
         from django.conf import settings
-        
+
         file_name = default_storage.save(f"publications/uploads/{file_obj.name}", file_obj)
         file_url = default_storage.url(file_name)
 
@@ -597,4 +762,544 @@ class MediaUploadView(APIView):
             backend_url = getattr(settings, 'BACKEND_URL', 'http://localhost:8000')
             url = f"{backend_url.rstrip('/')}{file_url}"
 
-        return Response({'url': url}, status=status.HTTP_201_CREATED)
+        response = Response({'url': url}, status=status.HTTP_201_CREATED)
+        # ─── HEADERS DE CACHE POUR LES MÉDIAS ─────────────────────────────
+        # Les images/vidéos publiées changent rarement après upload :
+        # un cache de 7 jours côté client réduit drastiquement la
+        # consommation de données au Mali (pas de re-téléchargement
+        # à chaque ouverture de l'article). Le cache serveur (Nginx)
+        # gère aussi les ETags et If-None-Match.
+        response['Cache-Control'] = 'public, max-age=604800, immutable'
+        response['Vary'] = 'Accept-Encoding'
+        return response
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# « À LA UNE » : mise en avant payante (façon publicité Facebook) + tendances
+# (publications à fort nombre de vues sur une courte période)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Tarifs de mise en avant payante (FCFA) par durée — la plateforme perçoit
+# 100 % de ce montant (c'est une publicité, pas une vente de contenu).
+FEATURED_PRICES = {
+    7: 5000,
+    14: 8000,
+    30: 12000,
+}
+
+
+class FeaturedPublicationsView(APIView):
+    """GET /api/publications/featured/
+
+    Vitrine « À la une » de l'accueil, deux sources combinées :
+    - `featured` : publications mises en avant (payantes/plan ou manuelles),
+      triées de la plus récente à la plus ancienne.
+    - `trending` : publications à fort nombre de vues sur les 48 dernières
+      heures (nombre impressionnant de vues en peu de temps), triées par
+      popularité décroissante.
+    """
+    permission_classes = [permissions.AllowAny]
+    serializer_class = PublicationSerializer
+
+    # Jusqu'à 12 publications « À la une » (demande explicite) — la vitrine
+    # reste un carrousel horizontal, le nombre d'éléments n'a pas d'impact
+    # sur la disposition.
+    FEATURED_LIMIT = 12
+    TRENDING_LIMIT = 12
+    TRENDING_WINDOW_HOURS = 48
+
+    def get(self, request):
+        from django.utils import timezone
+        from datetime import timedelta
+        from django.db.models import Count
+
+        published = Publication.objects.filter(status='published').select_related('publisher', 'category')
+
+        # 1) Mises en avant explicites (payantes ou manuelles)
+        featured_qs = published.filter(is_featured=True).order_by('-created_at')[:self.FEATURED_LIMIT]
+
+        # 2) Tendances : le plus de vues (dédupliquées) sur les 48 dernières
+        # heures, avec un plancher pour éviter d'afficher des publications
+        # quasi sans vues.
+        cutoff = timezone.now() - timedelta(hours=self.TRENDING_WINDOW_HOURS)
+        from .models import PublicationView
+        trending_ids = (
+            PublicationView.objects
+            .filter(viewed_at__gte=cutoff)
+            .values('publication_id')
+            .annotate(vues=Count('id'))
+            .filter(vues__gte=3)
+            .order_by('-vues')
+            .values_list('publication_id', flat=True)[:self.TRENDING_LIMIT]
+        )
+        # Conserver l'ordre de popularité (order_by de la liste d'ids)
+        trending_list = []
+        trending_pubs = {
+            p.id: p
+            for p in published.filter(id__in=list(trending_ids))
+        }
+        for pid in trending_ids:
+            if pid in trending_pubs:
+                trending_list.append(trending_pubs[pid])
+
+        serializer = self.serializer_class(featured_qs, many=True, context={'request': request})
+        trending_serializer = self.serializer_class(
+            trending_list, many=True, context={'request': request}
+        )
+        return Response({
+            'featured': serializer.data,
+            'trending': trending_serializer.data,
+        })
+
+
+def _activer_featured_promotion(promotion, transaction=None):
+    """Active une promotion « À la une » : marque la publication mise en
+    avant et planifie l'expiration."""
+    from django.utils import timezone
+    from datetime import timedelta
+
+    now = timezone.now()
+    promotion.status = 'active'
+    promotion.starts_at = now
+    promotion.ends_at = now + timedelta(days=promotion.duration_days)
+    promotion.transaction = transaction
+    promotion.save(update_fields=['status', 'starts_at', 'ends_at', 'transaction'])
+
+    pub = promotion.publication
+    pub.is_featured = True
+    pub.save(update_fields=['is_featured'])
+
+    # Notifie l'éditeur
+    try:
+        from apps.notifications.views import send_notification
+        send_notification(
+            user=promotion.publisher,
+            type_notif='featured_activated',
+            title='Votre publication est à la une 🎉',
+            message=(
+                f'« {pub.title[:40]} » est mise en avant sur l\'accueil '
+                f'pendant {promotion.duration_days} jours.'
+            ),
+            data={'publication_id': str(pub.id)},
+        )
+    except Exception:
+        logger.exception("Echec notification mise en avant %s", promotion.id)
+
+
+def _initier_transaction_featured(user, promotion, montant, mode_paiement, phone=''):
+    """Crée la transaction de mise en avant (status pending) et, en mode
+    portefeuille, la valide immédiatement. Retourne (transaction, payload)."""
+    from apps.paiements.models import Transaction
+    import uuid
+    from decimal import Decimal
+    from django.utils import timezone
+
+    montant = Decimal(str(montant))
+    reference = str(uuid.uuid4())
+
+    if mode_paiement == 'wallet':
+        from apps.accounts.models import PublisherProfile
+        from django.db import transaction as db_transaction
+
+        with db_transaction.atomic():
+            profile = PublisherProfile.objects.select_for_update().get(user=user)
+            if profile.solde < montant:
+                return None, {'error': 'Solde éditeur insuffisant pour cette mise en avant.'}
+            profile.solde -= montant
+            profile.save(update_fields=['solde'])
+
+            tx = Transaction.objects.create(
+                reference=reference,
+                payer=user,
+                beneficiaire=None,
+                publication=promotion.publication,
+                type_transaction='featured',
+                montant_brut=montant,
+                commission=montant,
+                montant_net=0,
+                status='success',
+                processed_at=timezone.now(),
+                description=f'Mise en avant « {promotion.publication.title[:40]} » ({promotion.duration_days}j)',
+                metadata={'mode_paiement': 'wallet', 'featured_promotion_id': promotion.id},
+            )
+            _activer_featured_promotion(promotion, transaction=tx)
+            try:
+                from apps.comptabilite.utils import enregistrer_ecriture
+                enregistrer_ecriture(tx)
+            except Exception:
+                logger.exception("Ecriture comptable mise en avant %s", tx.id)
+        return tx, {'transaction': str(tx.reference), 'status': tx.status, 'message': 'Mise en avant activée avec succès.'}
+
+    # Mobile money / carte via CinetPay — la MÊME passerelle que les
+    # lecteurs (système de paiement unifié via CinetPay)
+    # réservé aux éditeurs/admins). En l'absence de clés CinetPay dans le
+    # .env, le service bascule automatiquement en mode simulation.
+    from apps.paiements.cinetpay import cinetpay_service
+    channels = {
+        'wave': 'MOBILE',
+        'orange_money': 'MOBILE',
+        'moov_money': 'MOBILE',
+        'card': 'CARD',
+    }.get(mode_paiement, 'ALL')
+    result = cinetpay_service.initier_paiement(
+        montant=float(montant),
+        phone=phone,
+        reference=reference,
+        description=f'Digital Press — Mise en avant {promotion.duration_days}j',
+        channels=channels,
+    )
+    tx = Transaction.objects.create(
+        reference=reference,
+        payer=user,
+        beneficiaire=None,
+        publication=promotion.publication,
+        type_transaction='featured',
+        montant_brut=montant,
+        commission=montant,
+        montant_net=0,
+        phone_payer=phone,
+        status='pending',
+        description=f'Mise en avant « {promotion.publication.title[:40]} » ({promotion.duration_days}j)',
+        metadata={**result, 'featured_promotion_id': promotion.id},
+    )
+    promotion.transaction = tx
+    promotion.save(update_fields=['transaction'])
+    return tx, {
+        'transaction': str(tx.reference),
+        'payment_url': result.get('payment_url', ''),
+        'cinetpay_ref': result.get('cinetpay_ref', ''),
+        'message': result.get('message', ''),
+    }
+
+
+class FeaturePublicationView(APIView):
+    """POST /api/publications/<pk>/feature/
+
+    L'éditeur met sa publication « À la une » en payant (façon publicité     Facebook). Body : {"days": 7|14|30, "mode_paiement": "wallet"|"simulation"|"cinetpay", "phone": "..."}
+    - `wallet` : payé immédiatement depuis le solde d'éditeur, activé tout de suite.
+    - `simulation` / `cinetpay` : paiement mobile money initié, à vérifier via
+      /feature/verify/ (ou le webhook).
+    """
+    permission_classes = [permissions.IsAuthenticated, IsPublisher]
+
+    def post(self, request, pk):
+        from rest_framework.exceptions import PermissionDenied
+        from django.utils import timezone
+
+        try:
+            pub = Publication.objects.get(pk=pk, publisher=request.user)
+        except Publication.DoesNotExist:
+            return Response({'error': 'Publication introuvable ou pas la vôtre.'}, status=404)
+
+        if pub.status != 'published':
+            return Response({'error': 'Seule une publication publiée peut être mise à la une.'}, status=400)
+
+        # Pas de double mise en avant tant qu'une promotion est active.
+        active = pub.featured_promotions.filter(status='active').exists()
+        if active:
+            return Response({'error': 'Cette publication est déjà à la une.'}, status=400)
+
+        days = request.data.get('days')
+        try:
+            days = int(days)
+        except (TypeError, ValueError):
+            return Response({'error': 'Durée invalide (7, 14 ou 30 jours).'}, status=400)
+        if days not in FEATURED_PRICES:
+            return Response({'error': 'Durée invalide (7, 14 ou 30 jours).'}, status=400)
+
+        montant = FEATURED_PRICES[days]
+        mode = request.data.get('mode_paiement', 'simulation')
+        phone = request.data.get('phone', '')
+
+        promotion = self._get_or_create_promotion(pub, days, montant)
+
+        if promotion.status == 'active':
+            return Response({'error': 'Cette publication est déjà à la une.'}, status=400)
+
+        tx, payload = _initier_transaction_featured(
+            request.user, promotion, montant, mode, phone
+        )
+        if payload.get('error'):
+            return Response({'error': payload['error']}, status=400)
+        return Response(payload, status=status.HTTP_201_CREATED)
+
+    def _get_or_create_promotion(self, pub, days, montant):
+        from .models import FeaturedPromotion
+        existing = (
+            pub.featured_promotions
+            .filter(status__in=['pending', 'active'])
+            .order_by('-created_at')
+            .first()
+        )
+        if existing:
+            existing.duration_days = days
+            existing.montant = montant
+            existing.save(update_fields=['duration_days', 'montant'])
+            return existing
+        return FeaturedPromotion.objects.create(
+            publication=pub,
+            publisher=pub.publisher,
+            duration_days=days,
+            montant=montant,
+        )
+
+
+class VerifyFeaturePaymentView(APIView):
+    """POST /api/publications/<pk>/feature/verify/  Body: {"reference": "..."}
+
+    Vérifie le paiement mobile money d'une mise en avant et active la
+    promotion si le paiement est confirmé."""
+    permission_classes = [permissions.IsAuthenticated, IsPublisher]
+
+    def post(self, request, pk):
+        from apps.paiements.models import Transaction
+        from apps.paiements.cinetpay import cinetpay_service
+        from .models import FeaturedPromotion
+        from django.db import transaction as db_transaction
+        from django.utils import timezone
+
+        reference = request.data.get('reference', '')
+        if not reference:
+            return Response({'error': 'Référence manquante.'}, status=400)
+
+        promotion = (
+            FeaturedPromotion.objects
+            .filter(publication_id=pk, publisher=request.user)
+            .select_related('publication')
+            .order_by('-created_at')
+            .first()
+        )
+        if not promotion:
+            return Response({'error': 'Aucune mise en avant en attente.'}, status=404)
+
+        tx = promotion.transaction
+        if tx is None or str(tx.reference) != str(reference):
+            return Response({'error': 'Transaction inconnue pour cette mise en avant.'}, status=404)
+
+        if tx.status in ('success', 'failed', 'cancelled', 'refunded'):
+            if tx.status == 'success' and promotion.status == 'pending':
+                _activer_featured_promotion(promotion, transaction=tx)
+            return Response({
+                'status': tx.status,
+                'featured': promotion.status == 'active',
+                'message': 'Paiement déjà traité.',
+            })
+
+        from apps.paiements.cinetpay import cinetpay_service
+        result = cinetpay_service.verifier_paiement(
+            reference=str(tx.reference)
+        )
+
+        if result.get('status') == 'success':
+            with db_transaction.atomic():
+                tx = Transaction.objects.select_for_update().get(pk=tx.pk)
+                if tx.status == 'pending':
+                    tx.status = 'success'
+                    tx.processed_at = timezone.now()
+                    tx.save(update_fields=['status', 'processed_at'])
+                    _activer_featured_promotion(promotion, transaction=tx)
+                    try:
+                        from apps.comptabilite.utils import enregistrer_ecriture
+                        enregistrer_ecriture(tx)
+                    except Exception:
+                        logger.exception("Ecriture comptable mise en avant %s", tx.id)
+        elif result.get('status') in ('failed', 'cancelled'):
+            tx.status = result['status']
+            tx.save(update_fields=['status'])
+
+        return Response({
+            'status': tx.status,
+            'featured': promotion.status == 'active',
+            'message': result.get('message', ''),
+        })
+
+
+class AdminFeaturedPromotionsView(APIView):
+    """GET/POST /api/publications/admin/featured-promotions/
+
+    Modération des mises en avant « À la une » par l'administrateur :
+    - GET : liste complète (toutes promotions, triées de la plus récente),
+      avec montant, statut, période et publication.
+    - POST {"promotion_id": X, "action": "cancel"} : annule une promotion
+      (active ou en attente) — retire la mise en avant de l'accueil et
+      passe la promotion en 'cancelled'.
+    """
+    permission_classes = [permissions.IsAuthenticated, IsAdmin]
+
+    def get(self, request):
+        from .models import FeaturedPromotion
+
+        status_filter = request.query_params.get('status')
+        qs = FeaturedPromotion.objects.select_related(
+            'publication', 'publisher', 'transaction'
+        ).order_by('-created_at')
+        if status_filter:
+            qs = qs.filter(status=status_filter)
+
+        data = [
+            {
+                'id': p.id,
+                'publication_id': p.publication_id,
+                'publication_title': p.publication.title,
+                'publisher_id': p.publisher_id,
+                'publisher_name': p.publisher.name or p.publisher.username,
+                'duration_days': p.duration_days,
+                'montant': str(p.montant),
+                'status': p.status,
+                'starts_at': p.starts_at,
+                'ends_at': p.ends_at,
+                'created_at': p.created_at,
+                'transaction_ref': p.transaction.reference if p.transaction else None,
+            }
+            for p in qs
+        ]
+        total_revenue = sum(
+            float(p.montant) for p in qs if p.status == 'active'
+        )
+        return Response({
+            'results': data,
+            'total_active_revenue': total_revenue,
+        })
+
+    def post(self, request):
+        from .models import FeaturedPromotion
+
+        promo_id = request.data.get('promotion_id')
+        action = request.data.get('action')
+        if not promo_id or action != 'cancel':
+            return Response({'error': 'promotion_id + action=cancel requis.'}, status=400)
+
+        promo = FeaturedPromotion.objects.select_related('publication').filter(
+            pk=promo_id
+        ).first()
+        if not promo:
+            return Response({'error': 'Promotion introuvable.'}, status=404)
+
+        if promo.status == 'active':
+            pub = promo.publication
+            # Ne retire la mise en avant que si aucune autre promotion active
+            # ne couvre encore cette publication.
+            still_active = pub.featured_promotions.filter(
+                status='active'
+            ).exclude(pk=promo.pk).exists()
+            if not still_active:
+                pub.is_featured = False
+                pub.save(update_fields=['is_featured'])
+        promo.status = 'cancelled'
+        promo.save(update_fields=['status'])
+        return Response({'detail': 'Promotion annulée.', 'id': promo.id})
+
+
+class PublisherViewsHistoryView(APIView):
+    """GET /api/publications/my/views-history/?days=14
+
+    Historique des vues des publications de l'éditeur connecté, jour par
+    jour (basé sur le modèle PublicationView, vues dédupliquées par
+    visiteur/30 min). Sert au graphique « Historique des vues » de
+    l'espace Éditeur.
+
+    Réponse : {days, series: [{date, count}], per_publication: [{id, title,
+    series: [...]}]} — `series` est rempli du plus ancien au plus récent,
+    avec des 0 pour les jours sans vue.
+    """
+    permission_classes = [permissions.IsAuthenticated, IsPublisher]
+
+    def get(self, request):
+        from django.utils import timezone
+        from datetime import timedelta
+        from django.db.models import Count
+        from django.db.models.functions import TruncDate
+        from .models import PublicationView
+
+        try:
+            days = min(int(request.query_params.get('days', 14)), 60)
+        except (TypeError, ValueError):
+            days = 14
+        days = max(days, 1)
+
+        today = timezone.now().date()
+        dates = [today - timedelta(days=i) for i in range(days - 1, -1, -1)]
+        date_strs = [d.isoformat() for d in dates]
+
+        pubs = Publication.objects.filter(publisher=request.user)
+        start = timezone.make_aware(
+            timezone.datetime.combine(dates[0], timezone.datetime.min.time())
+        )
+
+        rows = (
+            PublicationView.objects
+            .filter(publication__publisher=request.user, viewed_at__gte=start)
+            .annotate(day=TruncDate('viewed_at'))
+            .values('day', 'publication_id')
+            .annotate(total=Count('id'))
+            .order_by('day')
+        )
+
+        # Compteur global par date
+        global_by_date = {}
+        per_pub = {}
+        for row in rows:
+            day = row['day'].isoformat()
+            pid = row['publication_id']
+            global_by_date[day] = global_by_date.get(day, 0) + row['total']
+            per_pub.setdefault(pid, {})[day] = row['total']
+
+        series = [{'date': d, 'count': global_by_date.get(d, 0)} for d in date_strs]
+        per_publication = [
+            {
+                'id': pub.id,
+                'title': pub.title,
+                'series': [
+                    {'date': d, 'count': per_pub.get(pub.id, {}).get(d, 0)}
+                    for d in date_strs
+                ],
+            }
+            for pub in pubs.order_by('-created_at')
+        ]
+
+        return Response({
+            'days': days,
+            'series': series,
+            'per_publication': per_publication,
+        })
+
+
+class PublisherStatsExportView(APIView):
+    """GET : export CSV des statistiques détaillées de l'éditeur connecté
+    (une ligne par publication : titre, type, vues, favoris, date).
+
+    ─── AVANTAGE RÉEL DU PLAN : EXPORT STATISTIQUES ────────────────────
+    Réservé aux plans dont has_stats_export=True (Standard/Premium par
+    défaut) — un vrai avantage concret, pas juste un texte affiché.
+    """
+    permission_classes = [permissions.IsAuthenticated, IsPublisher]
+
+    def get(self, request):
+        active_sub = request.user.platform_subscriptions.filter(
+            status='active'
+        ).select_related('plan').first()
+        can_export = bool(active_sub and active_sub.plan and active_sub.plan.has_stats_export)
+        if not can_export:
+            return Response(
+                {'error': "L'export de statistiques n'est pas inclus dans votre plan actuel."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        import csv
+        from django.http import HttpResponse
+
+        response = HttpResponse(content_type='text/csv')
+        response['Content-Disposition'] = 'attachment; filename="statistiques.csv"'
+        writer = csv.writer(response)
+        writer.writerow(['Titre', 'Type', 'Statut', 'Vues', 'Favoris', 'Créé le'])
+
+        publications = Publication.objects.filter(publisher=request.user).annotate(
+            fav_count=Count('favorited_by')
+        )
+        for pub in publications:
+            writer.writerow([
+                pub.title, pub.get_pub_type_display(), pub.get_status_display(),
+                pub.views_count, pub.fav_count, pub.created_at.strftime('%Y-%m-%d'),
+            ])
+
+        return response

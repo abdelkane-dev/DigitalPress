@@ -1,18 +1,33 @@
 from django.urls import path
 from .views import (
     CategoryListView, CategoryDetailView, PublicationListView, PublicationDetailView,
-    PublisherPublicationsView, PublicationUpdateView,
+    PublisherPublicationsView, PublicationUpdateView, PublisherStatsExportView,
+    PublicationResetStatsView,
     AdminPublicationsView, ReviewCreateView, ReviewListView,
     AdminReviewListView, AdminReviewDeleteView, PublicationFileAccessView,
     ConversationListView, ConversationMarkReadView, ConversationHideView,
     ConversationFeedView, CommentCreateView, CommentDeleteView,
     ReaderCategoryListCreateView, ReaderCategoryDeleteView,
     FavoriteListView, FavoriteAddOrUpdateView, FavoriteRemoveView, MediaUploadView,
+    FeaturedPublicationsView, FeaturePublicationView, VerifyFeaturePaymentView,
+    AdminFeaturedPromotionsView, PublisherViewsHistoryView,
 )
 
 urlpatterns = [
     path('categories/', CategoryListView.as_view(), name='category_list'),
     path('categories/<int:pk>/', CategoryDetailView.as_view(), name='category_detail'),
+
+    # « À la une » : vitrine (featured + tendances) et mise en avant payante
+    # par l'éditeur. Déclaré avant '<int:pk>/' pour ne pas être capté par
+    # la route de détail.
+    path('featured/', FeaturedPublicationsView.as_view(), name='featured_publications'),
+    path('<int:pk>/feature/', FeaturePublicationView.as_view(), name='feature_publication'),
+    path('<int:pk>/feature/verify/', VerifyFeaturePaymentView.as_view(), name='verify_feature_payment'),
+
+    # Admin : modération des mises en avant « À la une »
+    path('admin/featured-promotions/', AdminFeaturedPromotionsView.as_view(), name='admin_featured_promotions'),
+    # Éditeur : historique des vues (graphique stats)
+    path('my/views-history/', PublisherViewsHistoryView.as_view(), name='my_views_history'),
 
     # "Mes Conversations" (remplace l'ancienne page Favoris) : doit être
     # déclaré avant '<int:pk>/' pour ne pas être capté par cette route.
@@ -40,7 +55,9 @@ urlpatterns = [
     path('<int:pk>/comments/add/', CommentCreateView.as_view(), name='comment_add'),
     path('<int:pk>/conversation-feed/', ConversationFeedView.as_view(), name='conversation_feed'),
     path('my/', PublisherPublicationsView.as_view(), name='my_publications'),
+    path('my/stats-export/', PublisherStatsExportView.as_view(), name='stats_export'),
     path('my/<int:pk>/', PublicationUpdateView.as_view(), name='publication_update'),
+    path('my/<int:pk>/reset-stats/', PublicationResetStatsView.as_view(), name='publication_reset_stats'),
     path('upload-media/', MediaUploadView.as_view(), name='media_upload'),
     path('admin/', AdminPublicationsView.as_view(), name='admin_publications'),
     path('admin/reviews/', AdminReviewListView.as_view(), name='admin_reviews'),

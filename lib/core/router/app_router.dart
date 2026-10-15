@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -14,14 +14,23 @@ import 'package:digital_press/screens/article/article_comments_screen.dart';
 
 import 'package:digital_press/screens/admin/admin_statistics_screen.dart';
 import 'package:digital_press/screens/admin/admin_dashboard_screen.dart';
+import 'package:digital_press/screens/admin/admin_verifications_screen.dart';
+import 'package:digital_press/screens/admin/admin_categories_screen.dart';
 import 'package:digital_press/screens/admin/manage_posters_screen.dart';
 import 'package:digital_press/screens/admin/create_poster_screen.dart';
 import 'package:digital_press/screens/admin/admin_comptabilite_screen.dart';
 import 'package:digital_press/screens/admin/manage_users_screen.dart';
+import 'package:digital_press/screens/admin/admin_user_detail_screen.dart';
 import 'package:digital_press/screens/admin/manage_reviews_screen.dart';
-import 'package:digital_press/screens/roadmap/feature_roadmap_screen.dart';
+import 'package:digital_press/screens/admin/admin_featured_screen.dart';
+import 'package:digital_press/screens/admin/admin_withdrawals_screen.dart';
 
 import 'package:digital_press/screens/poster/poster_dashboard_screen.dart';
+import 'package:digital_press/screens/poster/poster_subscribe_screen.dart';
+import 'package:digital_press/screens/poster/poster_my_subscription_screen.dart';
+import 'package:digital_press/screens/poster/poster_subscribers_screen.dart';
+import 'package:digital_press/screens/poster/poster_verification_screen.dart';
+import 'package:digital_press/screens/support/help_support_screen.dart';
 import 'package:digital_press/screens/poster/create_articles_screen.dart';
 import 'package:digital_press/screens/poster/my_articles_screen.dart';
 import 'package:digital_press/screens/poster/poster_statistics_screen.dart';
@@ -34,6 +43,7 @@ import 'package:digital_press/screens/profile/editeur_comptabilite_screen.dart';
 
 import 'package:digital_press/screens/profile/profile_screen.dart';
 import '../services/auth_service.dart';
+import 'package:digital_press/model/user.dart';
 
 /// Utilitaire pour convertir un Stream en Listenable pour GoRouter.
 class GoRouterRefreshStream extends ChangeNotifier {
@@ -56,10 +66,26 @@ class GoRouterRefreshStream extends ChangeNotifier {
 /// Fournisseur Riverpod pour la configuration de navigation globale via [GoRouter].
 final routerProvider = Provider<GoRouter>((ref) {
   final authService = ref.watch(authServiceProvider);
-  final authState = ref.watch(authStateProvider);
+  // ⚠️ FIX CRITIQUE : on utilise ref.read (et non ref.watch) pour
+  // authStateProvider. Le ref.watch invalidait ce provider à CHAQUE
+  // émission du stream (refreshProfile(), WebSocket, etc.), recréant
+  // le GoRouter à initialLocation '/' → retour forcé à l'accueil.
+  // Le refreshListenable ci-dessous gère déjà la re-évaluation des
+  // redirections quand l'auth state change réellement.
+
+  // ─── CORRECTIF : « la page profil m'envoie vers l'accueil » ───────────
+  // Les redirections par rôle ci-dessous se déclenchaient à CHAQUE émission
+  // du profil (refreshProfile(), WebSocket stats_changed…) : dès qu'on
+  // ouvrait la page profil, l'utilisateur était re-routé (éditeur non
+  // vérifié → /poster/verification, admin/éditeur → /…) — une "actualisation
+  // qui revient vers l'accueil" à chaque ouverture. On ne relance ces
+  // redirections que lorsque l'état d'authentification CHANGE RÉELLEMENT
+  // (connexion, déconnexion, ou changement de rôle / statut / suspension),
+  // pas quand le profil est simplement rafraîchi avec les mêmes valeurs.
+  String? lastSeenAuthKey;
 
   return GoRouter(
-    initialLocation: '/',
+    initialLocation: '/auth/login',
     refreshListenable: GoRouterRefreshStream(authService.authStateChanges),
     routes: [
       GoRoute(
@@ -74,6 +100,14 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: '/auth/register',
         builder: (context, state) =>
             const AuthLoginScreen(initialRegisterMode: true),
+      ),
+      GoRoute(
+        path: '/accounts/auth/facebook/callback',
+        builder: (context, state) => const AuthLoginScreen(),
+      ),
+      GoRoute(
+        path: '/_=_',
+        builder: (context, state) => const AuthLoginScreen(),
       ),
       GoRoute(
         path: '/auth/forgot-password',
@@ -128,6 +162,26 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (context, state) => const PosterDashboardScreen(),
       ),
       GoRoute(
+        path: '/poster/subscribe',
+        builder: (context, state) => const PosterSubscribeScreen(),
+      ),
+      GoRoute(
+        path: '/poster/my-subscription',
+        builder: (context, state) => const PosterMySubscriptionScreen(),
+      ),
+      GoRoute(
+        path: '/poster/subscribers',
+        builder: (context, state) => const PosterSubscribersScreen(),
+      ),
+      GoRoute(
+        path: '/support',
+        builder: (context, state) => const HelpSupportScreen(),
+      ),
+      GoRoute(
+        path: '/poster/verification',
+        builder: (context, state) => const PosterVerificationScreen(),
+      ),
+      GoRoute(
         path: '/poster/my-articles',
         builder: (context, state) => const MyArticlesScreen(),
       ),
@@ -163,12 +217,16 @@ final routerProvider = Provider<GoRouter>((ref) {
         },
       ),
       GoRoute(
-        path: '/poster/feature-roadmap',
-        builder: (context, state) => const FeatureRoadmapScreen(),
-      ),
-      GoRoute(
         path: '/admin',
         builder: (context, state) => const AdminDashboardScreen(),
+      ),
+      GoRoute(
+        path: '/admin/verifications',
+        builder: (context, state) => const AdminVerificationsScreen(),
+      ),
+      GoRoute(
+        path: '/admin/categories',
+        builder: (context, state) => const AdminCategoriesScreen(),
       ),
       GoRoute(
         path: '/admin/manage-posters',
@@ -191,51 +249,126 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (context, state) => const ManageUsersScreen(),
       ),
       GoRoute(
-        path: '/admin/feature-roadmap',
-        builder: (context, state) => const FeatureRoadmapScreen(),
+        path: '/admin/user/:id',
+        builder: (context, state) => AdminUserDetailScreen(
+          userId: int.tryParse(state.pathParameters['id'] ?? '') ?? 0,
+        ),
       ),
       GoRoute(
         path: '/admin/manage-reviews',
         builder: (context, state) => const ManageReviewsScreen(),
       ),
+      GoRoute(
+        path: '/admin/featured',
+        builder: (context, state) => const AdminFeaturedScreen(),
+      ),
+      GoRoute(
+        path: '/admin/withdrawals',
+        builder: (context, state) => const AdminWithdrawalsScreen(),
+      ),
     ],
     redirect: (context, state) {
+      // On lit l'authState à chaque appel de redirect (pas au moment
+      // de la création du provider) pour éviter la recreation du router.
+      final authState = ref.read(authStateProvider);
+      // ─── CORRECTIF : flash sur l'écran de connexion à chaque lancement ──
+      if (authState.isLoading && !authState.hasValue) {
+        return null;
+      }
+
       final user = authState.valueOrNull;
       final isLoggedIn = user != null;
-      final isAuthRoute = state.matchedLocation.startsWith('/auth');
-      final isAdminRoute = state.matchedLocation.startsWith('/admin');
-      final isPosterRoute = state.matchedLocation.startsWith('/poster');
+      final location = state.matchedLocation;
+      final isAuthRoute = location.startsWith('/auth') ||
+          location.startsWith('/accounts/auth') ||
+          location == '/_=_' ||
+          location.contains('_=_');
+      final isAdminRoute = location.startsWith('/admin');
+      final isPosterRoute = location.startsWith('/poster');
 
+      // ── Tout utilisateur non connecté → redirection directe vers la page de connexion ──
       if (!isLoggedIn && !isAuthRoute) {
+        lastSeenAuthKey = null;
         return '/auth/login';
       }
 
+      // ── Connecté sur route auth → accueil ────────────────────────────────
       if (isLoggedIn && isAuthRoute) {
+        lastSeenAuthKey = _authKey(user);
         return '/';
       }
 
       if (user != null) {
+        final authKey = _authKey(user);
+        // ── On ne re-déclenche les redirections par rôle QUE lors d'un vrai
+        // changement d'état (connexion, changement de rôle, etc.).
+        // Cela évite que le FilePicker/updateProfile/WebSocket ne cause un
+        // rechargement de page en réévaluant les redirections inutilement.
+        final transitioned = authKey != lastSeenAuthKey;
+        lastSeenAuthKey = authKey;
+
+        if (!transitioned) {
+          // Pas de changement d'état → on ne touche pas à la navigation.
+          return null;
+        }
+
         final isAdmin = user.isAdmin;
         final isPublisher = user.isPublisher;
+        final isSubscribeRoute = location == '/poster/subscribe';
 
-        if (isAdminRoute && !isAdmin) {
-          return '/';
-        }
+        // Un non-admin essaie d'accéder à une route admin
+        if (isAdminRoute && !isAdmin) return '/';
 
-        if (isPosterRoute && !isPublisher) {
-          return '/';
-        }
+        // Un non-éditeur essaie d'accéder à une route poster
+        if (isPosterRoute && !isPublisher && !isAdmin) return '/';
 
-        if (isPosterRoute && isAdmin) {
-          return '/';
-        }
+        // Un admin n'a pas accès aux routes éditeur (et vice-versa)
+        if (isPosterRoute && isAdmin) return '/';
+        if (isAdminRoute && isPublisher) return '/';
 
-        if (isAdminRoute && isPublisher) {
-          return '/';
+        // Éditeur suspendu : seulement si on tente d'accéder au dashboard
+        // principal /poster (pas les sous-routes comme create-article, etc.)
+        if (isPublisher &&
+            !user.isPublisherActive &&
+            !isAuthRoute &&
+            !isSubscribeRoute &&
+            location == '/poster') {
+          return '/poster/subscribe';
         }
       }
 
       return null;
     },
+    errorBuilder: (context, state) {
+      if (state.uri.toString().contains('_=_') ||
+          state.uri.path.contains('_=_') ||
+          state.uri.path.contains('callback') ||
+          state.uri.path.contains('facebook')) {
+        return const AuthLoginScreen();
+      }
+      return Scaffold(
+        body: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('Page introuvable', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 16),
+              ElevatedButton(
+                onPressed: () => context.go('/'),
+                child: const Text('Accueil'),
+              ),
+            ],
+          ),
+        ),
+      );
+    },
   );
 });
+
+/// Clé d'authentification : identité + rôle + statut de vérification +
+/// statut d'activité éditeur. Utilisée pour ne déclencher les redirections
+/// par rôle que sur un changement réel, et non à chaque rafraîchissement
+/// du profil (voir redirect ci-dessus).
+String _authKey(User user) {
+  return '${user.id}|${user.role}|${user.verificationStatus}|${user.isPublisherActive}';
+}

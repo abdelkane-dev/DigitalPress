@@ -34,7 +34,9 @@ class Payment {
       id: json['id'] as String,
       userId: json['user_id'] as String,
       journalId: json['journal_id'] as String,
-      amount: (json['amount'] as num).toDouble(),
+      amount: (json['amount'] is num)
+          ? (json['amount'] as num).toDouble()
+          : (double.tryParse(json['amount']?.toString() ?? '0') ?? 0.0),
       method: _getMethodFromString(json['method'] as String),
       status: _getStatusFromString(json['status'] as String),
       phoneNumber: json['phone_number'] as String?,

@@ -7,7 +7,7 @@ class TransactionAdmin(admin.ModelAdmin):
     list_display = ['reference', 'payer', 'beneficiaire', 'type_transaction',
                     'montant_brut', 'commission', 'montant_net', 'status', 'created_at']
     list_filter = ['status', 'type_transaction', 'devise']
-    search_fields = ['reference', 'movapay_ref', 'payer__username', 'beneficiaire__username']
+    search_fields = ['reference', 'cinetpay_ref', 'payer__username', 'beneficiaire__username']
     readonly_fields = ['reference', 'created_at', 'updated_at', 'processed_at']
 
 

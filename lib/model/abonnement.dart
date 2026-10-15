@@ -7,7 +7,7 @@ class AbonnementPlan {
   final String? publisherName;
   final String description;
   final double prix;
-  final String period; // monthly, quarterly, yearly
+  final String period; // weekly, monthly, quarterly, semester, yearly
   final int maxPublications;
   final String features;
   final List<String> featuresList;
@@ -47,10 +47,14 @@ class AbonnementPlan {
 
   String get periodLabel {
     switch (period) {
+      case 'weekly':
+        return 'Semaine';
       case 'monthly':
         return 'Mois';
       case 'quarterly':
         return 'Trimestre';
+      case 'semester':
+        return 'Semestre';
       case 'yearly':
         return 'An';
       default:

@@ -1,10 +1,10 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import '../../core/services/auth_service.dart';
+import '../../core/utils/friendly_error.dart';
 import '../../model/user.dart';
 
 class EditProfileScreen extends ConsumerStatefulWidget {
@@ -103,7 +103,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur lors de la sélection : $e'), backgroundColor: Colors.red),
+          SnackBar(content: Text(friendlyError(e)), backgroundColor: Colors.red),
         );
       }
     }
@@ -133,7 +133,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur : ${e.toString()}'), backgroundColor: Colors.red),
+          SnackBar(content: Text(friendlyError(e)), backgroundColor: Colors.red),
         );
       }
     } finally {
@@ -322,7 +322,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
       if (kIsWeb) {
         imageProvider = NetworkImage(_imageFile!.path);
       } else {
-        imageProvider = FileImage(File(_imageFile!.path));
+        imageProvider = NetworkImage(_imageFile!.path);
       }
     } else if (user?.photoUrl != null && user!.photoUrl!.isNotEmpty) {
       imageProvider = user.photoUrl!.startsWith('http')

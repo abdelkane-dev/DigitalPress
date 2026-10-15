@@ -20,16 +20,16 @@ class ConversationsService {
 
   Future<List<Map<String, dynamic>>> getConversations() async {
     final res = await _api.get('${ApiConstants.publications}conversations/');
-    final results = res.data as List? ?? res.data['results'] as List? ?? [];
-    return results.cast<Map<String, dynamic>>();
+    final results = res.data as List? ?? (res.data is Map ? res.data['results'] as List? : null) ?? [];
+    return results.map((e) => e is Map ? Map<String, dynamic>.from(e) : <String, dynamic>{}).toList();
   }
 
   Future<List<Map<String, dynamic>>> getPublicationReviews(
       int publicationId) async {
     final res = await _api
         .get(ApiConstants.conversationFeed(publicationId));
-    final results = res.data as List? ?? res.data['results'] as List? ?? [];
-    return results.cast<Map<String, dynamic>>();
+    final results = res.data as List? ?? (res.data is Map ? res.data['results'] as List? : null) ?? [];
+    return results.map((e) => e is Map ? Map<String, dynamic>.from(e) : <String, dynamic>{}).toList();
   }
 
   Future<void> markRead(int publicationId) async {

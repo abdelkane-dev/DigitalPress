@@ -23,9 +23,13 @@ class AuthInterceptor extends Interceptor {
     RequestOptions options,
     RequestInterceptorHandler handler,
   ) async {
-    final token = await _secureStorageService.getToken();
-    if (token != null) {
-      options.headers['Authorization'] = 'Bearer $token';
+    try {
+      final token = await _secureStorageService.getToken();
+      if (token != null) {
+        options.headers['Authorization'] = 'Bearer $token';
+      }
+    } catch (_) {
+      // Secure storage failure: proceed without auth header.
     }
     return handler.next(options);
   }
@@ -89,7 +93,7 @@ class AuthInterceptor extends Interceptor {
       _failedRequestsQueue.clear();
 
       // Suppression des tokens corrompus/expirés du stockage sécurisé.
-      await _secureStorageService.deleteAll();
+      try { await _secureStorageService.deleteAll(); } catch (_) {}
 
       // Signal global → le widget racine appellera AuthService.signOut()
       // pour vider l'état Riverpod et rediriger vers l'écran de connexion.

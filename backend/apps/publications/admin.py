@@ -1,7 +1,7 @@
 from django.contrib import admin
 from .models import (
     Publication, Category, Review, Comment, ConversationRead, HiddenConversation,
-    ReaderCategory, Favorite,
+    ReaderCategory, Favorite, PublicationView, FeaturedPromotion,
 )
 
 
@@ -13,10 +13,24 @@ class CategoryAdmin(admin.ModelAdmin):
 
 @admin.register(Publication)
 class PublicationAdmin(admin.ModelAdmin):
-    list_display = ['title', 'publisher', 'category', 'prix', 'status', 'pub_type', 'views_count', 'created_at']
-    list_filter = ['status', 'pub_type', 'is_free', 'category']
+    list_display = ['title', 'publisher', 'category', 'prix', 'status', 'pub_type', 'views_count', 'is_featured', 'created_at']
+    list_filter = ['status', 'pub_type', 'is_free', 'is_featured', 'category']
     search_fields = ['title', 'description', 'publisher__username']
     readonly_fields = ['views_count', 'downloads_count', 'created_at', 'updated_at']
+
+
+@admin.register(PublicationView)
+class PublicationViewAdmin(admin.ModelAdmin):
+    list_display = ['publication', 'viewer_key', 'viewed_at']
+    list_filter = ['viewed_at']
+    search_fields = ['publication__title', 'viewer_key']
+
+
+@admin.register(FeaturedPromotion)
+class FeaturedPromotionAdmin(admin.ModelAdmin):
+    list_display = ['publication', 'publisher', 'duration_days', 'montant', 'status', 'starts_at', 'ends_at']
+    list_filter = ['status']
+    search_fields = ['publication__title', 'publisher__username']
 
 
 @admin.register(Review)

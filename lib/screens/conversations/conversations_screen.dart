@@ -96,13 +96,16 @@ class _ConversationsScreenState extends ConsumerState<ConversationsScreen> {
         : state.items.where((c) => c.title.toLowerCase().contains(query)).toList();
 
     return Scaffold(
-      backgroundColor: Colors.transparent,
+      // ─── CORRECTIF : même bug que ProfileScreen — un Scaffold
+      // transparent au-dessus d'un CustomScrollView dont le contenu ne
+      // remplit pas toute la hauteur (état "chargement" ou liste vide)
+      // laisse voir le fond noir par défaut du Navigator en dessous.
       body: RefreshIndicator(
         onRefresh: () => ref.read(conversationListProvider.notifier).load(),
         child: CustomScrollView(
           slivers: [
             MainAppBar(
-              title: 'Conversations',
+              title: 'conversations',
               titleBadge: state.items.where((c) => c.hasNewComments).isNotEmpty
                   ? Container(
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),

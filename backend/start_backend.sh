@@ -121,6 +121,7 @@ echo -e "${GREEN}═════════════════════
 echo ""
 echo -e "  ${BLUE}Admin Django :${NC}  http://$LOCAL_IP:8000/admin/"
 echo -e "  ${BLUE}API :${NC}           http://$LOCAL_IP:8000/api/"
+echo -e "  ${BLUE}WebSocket :${NC}     ws://$LOCAL_IP:8000/ws/"
 echo -e "  ${BLUE}Logins demo :${NC}   admin / Admin123!"
 echo ""
 echo -e "${YELLOW}⚠  Dans Flutter app_config.dart, mettez :${NC}"
@@ -129,5 +130,5 @@ echo ""
 echo -e "  Arrêter : Ctrl+C"
 echo ""
 
-# ── 8. Start server ──────────────────────────────────────────────────────────
-python manage.py runserver 0.0.0.0:8000
+# ── 8. Start server (Daphne ASGI — supporte HTTP + WebSocket) ─────────────────
+daphne -b 0.0.0.0 -p 8000 config.asgi:application

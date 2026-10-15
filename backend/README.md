@@ -45,10 +45,6 @@ python scripts/seed.py            # Données de test
 python manage.py runserver        # http://localhost:8000
 ```
 
-### 4. Docker Compose (tout-en-un)
-```bash
-docker-compose up -d
-docker-compose exec backend python scripts/seed.py
 ```
 
 ---
@@ -246,9 +242,10 @@ En mode développement (sans clé API configurée), le service utilise automatiq
 
 ```python
 # Configuration dans .env
-MOVAPAY_API_KEY=votre_cle_api
-MOVAPAY_SECRET=votre_secret
-MOVAPAY_BASE_URL=https://api.movapay.com/v1
+CINETPAY_API_KEY=votre_cle_api
+CINETPAY_SITE_ID=votre_site_id
+CINETPAY_SECRET=votre_secret
+CINETPAY_BASE_URL=https://api-checkout.cinetpay.com/v2
 ```
 
 **Flux de paiement:**

@@ -6,8 +6,10 @@ import uuid
 class Transaction(models.Model):
     TYPE_CHOICES = [
         ('subscription', 'Abonnement'),
+        ('platform_subscription', 'Abonnement plateforme (éditeur)'),
         ('purchase', 'Achat unitaire'),
         ('resell_right', 'Achat de droit de revente'),
+        ('featured', 'Mise en avant (À la une)'),
         ('withdrawal', 'Retrait éditeur'),
         ('commission', 'Commission plateforme'),
         ('refund', 'Remboursement'),
@@ -21,7 +23,7 @@ class Transaction(models.Model):
     ]
 
     reference = models.CharField(max_length=100, unique=True, default=uuid.uuid4)
-    movapay_ref = models.CharField(max_length=255, blank=True)
+    cinetpay_ref = models.CharField(max_length=255, blank=True)
     payer = models.ForeignKey(
         'accounts.User', on_delete=models.SET_NULL, null=True,
         related_name='transactions_emises'
@@ -38,7 +40,11 @@ class Transaction(models.Model):
         'abonnements.Abonnement', on_delete=models.SET_NULL, null=True, blank=True,
         related_name='transactions'
     )
-    type_transaction = models.CharField(max_length=20, choices=TYPE_CHOICES)
+    publisher_subscription = models.ForeignKey(
+        'abonnements.PublisherSubscription', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='transactions'
+    )
+    type_transaction = models.CharField(max_length=50, choices=TYPE_CHOICES)
     montant_brut = models.DecimalField(max_digits=12, decimal_places=2)
     commission = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     montant_net = models.DecimalField(max_digits=12, decimal_places=2)
@@ -95,3 +101,65 @@ class DemandeRetrait(models.Model):
 
     def __str__(self):
         return f"{self.editeur.username} — {self.montant} FCFA ({self.status})"
+
+
+class WithdrawalVerificationCode(models.Model):
+    """Code OTP de confirmation d'une demande de retrait d'argent.
+
+    (Demande explicite) : avant de valider une demande de retrait, le
+    titulaire du compte doit prouver qu'il en est bien le propriétaire en
+    saisissant un code à 6 chiffres reçu par email (ou SMS quand un
+    fournisseur SMS sera configuré) — protection contre les retraits
+    frauduleux sur les comptes éditeurs.
+
+    Même conception que EmailVerificationCode / PasswordResetCode : le code
+    brut n'est jamais stocké (seul son hash SHA-256 est conservé), courte
+    expiration (15 min) et nombre maximal de tentatives (5). Un code ne
+    peut servir qu'à UNE SEULE demande de retrait (is_used=True dès qu'il
+    est consommé), et un nouveau code invalide tous les précédents.
+    """
+    user = models.ForeignKey(
+        'accounts.User', on_delete=models.CASCADE, related_name='withdrawal_verification_codes'
+    )
+    code_hash = models.CharField(max_length=64)
+    channel = models.CharField(
+        max_length=10, default='email',
+        choices=[('email', 'Email'), ('sms', 'SMS')],
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    is_used = models.BooleanField(default=False)
+    attempts = models.PositiveSmallIntegerField(default=0)
+
+    class Meta:
+        verbose_name = _('Code OTP de retrait')
+        verbose_name_plural = _('Codes OTP de retrait')
+        ordering = ['-created_at']
+
+    @staticmethod
+    def hash_code(raw_code: str) -> str:
+        import hashlib
+        return hashlib.sha256(raw_code.encode('utf-8')).hexdigest()
+
+    @classmethod
+    def issue_for(cls, user, channel: str = 'email', validity_minutes: int = 15):
+        """Génère un nouveau code à 6 chiffres, invalide les précédents et
+        le retourne en clair (pour l'envoyer par email/SMS)."""
+        import secrets
+        from django.utils import timezone as _tz
+        cls.objects.filter(user=user, is_used=False).update(is_used=True)
+        raw_code = f"{secrets.randbelow(1_000_000):06d}"
+        cls.objects.create(
+            user=user,
+            code_hash=cls.hash_code(raw_code),
+            channel=channel if channel in ('email', 'sms') else 'email',
+            expires_at=_tz.now() + _tz.timedelta(minutes=validity_minutes),
+        )
+        return raw_code
+
+    def is_valid(self) -> bool:
+        from django.utils import timezone as _tz
+        return not self.is_used and self.expires_at > _tz.now() and self.attempts < 5
+
+    def __str__(self):
+        return f"Withdrawal OTP for {self.user.username} ({self.channel}, used={self.is_used})"

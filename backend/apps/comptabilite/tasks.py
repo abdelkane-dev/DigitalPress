@@ -47,10 +47,10 @@ def calculer_reconciliation_mensuelle(self, annee=None, mois=None):
 
 @shared_task(bind=True, max_retries=3, default_retry_delay=30)
 def verifier_paiement_pending(self, transaction_id):
-    """Vérifie le statut d'une transaction en attente auprès de Movapay."""
+    """Vérifie le statut d'une transaction en attente auprès de CinetPay."""
     try:
         from apps.paiements.models import Transaction
-        from apps.paiements.movapay import movapay_service
+        from apps.paiements.cinetpay import cinetpay_service
         from apps.accounts.models import PublisherProfile
         from .utils import enregistrer_ecriture
         from django.db import transaction as db_tx
@@ -59,15 +59,14 @@ def verifier_paiement_pending(self, transaction_id):
         if tx.status != 'pending':
             return {'skipped': True, 'status': tx.status}
 
-        result = movapay_service.verifier_paiement(
+        result = cinetpay_service.verifier_paiement(
             reference=str(tx.reference),
-            movapay_ref=tx.movapay_ref,
         )
 
         if result.get('status') == 'success':
             with db_tx.atomic():
                 tx.status = 'success'
-                tx.movapay_ref = result.get('movapay_ref', tx.movapay_ref)
+                tx.cinetpay_ref = result.get('cinetpay_ref', tx.cinetpay_ref)
                 tx.processed_at = timezone.now()
                 tx.save()
 
@@ -170,6 +169,19 @@ def expirer_abonnements():
 
     logger.info("%d abonnements expirés traités.", count)
     return {'expired_count': count}
+
+
+@shared_task
+def expirer_abonnements_editeurs():
+    """DÉSACTIVÉE : le palier plateforme éditeur (Basique/Standard/Premium)
+    est désormais gratuit et automatique, sans date d'expiration — voir
+    apps.abonnements.services.sync_publisher_tier. Cette tâche ne doit plus
+    jamais retirer PublisherProfile.is_active : conservée uniquement pour
+    ne pas casser la planification Celery Beat existante si elle est encore
+    référencée ailleurs ; elle ne fait plus rien.
+    """
+    logger.info("expirer_abonnements_editeurs() : no-op (palier éditeur gratuit, sans expiration).")
+    return {'expired_count': 0}
 
 
 @shared_task

@@ -10,7 +10,8 @@ abstract class Failure {
 
 /// Représente une erreur provenant du serveur backend.
 class ServerFailure extends Failure {
-  const ServerFailure([super.message = 'Erreur serveur']);
+  final Map<String, dynamic>? errors;
+  const ServerFailure([super.message = 'Erreur serveur', this.errors]);
 }
 
 /// Représente une impossibilité de joindre le réseau (timeout, pas de Wi-Fi, etc.).
@@ -20,7 +21,8 @@ class NetworkFailure extends Failure {
 
 /// Représente une erreur liée à l'authentification (login invalide, session expirée).
 class AuthFailure extends Failure {
-  const AuthFailure([super.message = 'Erreur d\'authentification']);
+  final Map<String, dynamic>? errors;
+  const AuthFailure([super.message = 'Erreur d\'authentification', this.errors]);
 }
 
 /// Représente une erreur d'accès ou d'écriture dans la base de données locale (Hive).

@@ -1,5 +1,10 @@
+import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:web_socket_channel/web_socket_channel.dart';
+import '../../config/api_config.dart';
+import '../../core/storage/secure_storage_service.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/services/auth_service.dart';
 import '../../core/services/conversation_service.dart';
@@ -42,6 +47,9 @@ class _ArticleCommentsScreenState extends ConsumerState<ArticleCommentsScreen> {
   final TextEditingController _commentController = TextEditingController();
   bool _isSending = false;
   ConversationMessage? _replyingTo;
+  WebSocketChannel? _wsChannel;
+  StreamSubscription? _wsSubscription;
+  Timer? _wsReconnectTimer;
 
   @override
   void initState() {
@@ -63,12 +71,63 @@ class _ArticleCommentsScreenState extends ConsumerState<ArticleCommentsScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.read(conversationServiceProvider).markAsRead(widget.articleId);
     });
+    _connectRealtime();
+  }
+
+  /// Conversation en temps réel : dès qu'un autre utilisateur poste un
+  /// message dans CETTE conversation, on le reçoit immédiatement et on
+  /// invalide juste le provider existant pour refléter l'ajout — pas
+  /// besoin de dupliquer la logique d'affichage, on réutilise le
+  /// chargement classique déjà en place, juste déclenché instantanément
+  /// au lieu d'attendre une action manuelle de l'utilisateur.
+  Future<void> _connectRealtime() async {
+    final token = await ref.read(secureStorageServiceProvider).getToken();
+    if (token == null || token.isEmpty || !mounted) return;
+
+    final base = ApiConfig.wsBaseUrl;
+    if (base.isEmpty) return;
+
+    try {
+      final uri = Uri.parse('$base/ws/conversations/${widget.articleId}/?token=$token');
+      _wsChannel = WebSocketChannel.connect(uri);
+      _wsSubscription = _wsChannel!.stream.listen(
+        (raw) {
+          if (!mounted) return;
+          try {
+            final decoded = jsonDecode(raw as String);
+            if (decoded is Map && decoded['event'] == 'views_updated') {
+              // Compteur de vues en direct — pas un nouveau message, donc
+              // pas besoin de recharger le fil de conversation pour ça.
+              return;
+            }
+            ref.invalidate(conversationFeedProvider(widget.articleId));
+          } catch (_) {
+            // Message illisible : on ignore silencieusement, ça ne doit
+            // jamais faire planter l'écran de conversation.
+          }
+        },
+        onError: (_) => _scheduleReconnect(),
+        onDone: () => _scheduleReconnect(),
+        cancelOnError: true,
+      );
+    } catch (_) {
+      _scheduleReconnect();
+    }
+  }
+
+  void _scheduleReconnect() {
+    if (!mounted) return;
+    _wsReconnectTimer?.cancel();
+    _wsReconnectTimer = Timer(const Duration(seconds: 10), _connectRealtime);
   }
 
   @override
   void dispose() {
     _scrollController.dispose();
     _commentController.dispose();
+    _wsReconnectTimer?.cancel();
+    _wsSubscription?.cancel();
+    _wsChannel?.sink.close();
     super.dispose();
   }
 
@@ -155,25 +214,120 @@ class _ArticleCommentsScreenState extends ConsumerState<ArticleCommentsScreen> {
       body: pubAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (e, _) => Center(child: Text('Erreur : $e')),
-        data: (publication) => Column(
-          children: [
-            Expanded(
-              child: ListView(
-                controller: _scrollController,
-                padding: const EdgeInsets.all(16),
-                children: [
-                  _buildHeader(publication),
-                  const SizedBox(height: 20),
-                  _buildMyReviewCard(publication),
-                  const SizedBox(height: 20),
-                  const Divider(),
-                  const SizedBox(height: 8),
-                  _buildConversationThread(publication),
-                ],
+        data: (publication) {
+          // ─── PAYWALL AVANT LE CONTENU ──────────────────────────────────
+          // Un contenu payant non débloqué ne doit RIEN montrer d'autre que
+          // les options d'abonnement/achat : ni commentaires, ni avis, ni
+          // champ de saisie (demande explicite : « on ne permet aucun
+          // visionnage pour les contenus payants sans payer »).
+          final user = ref.watch(authServiceProvider).currentUser;
+          final locked = publication.isLockedFor(
+            currentUserId: user?.id,
+            isAdmin: user?.isAdmin ?? false,
+          );
+          if (locked) return _buildPaywall(publication);
+
+          return Column(
+            children: [
+              Expanded(
+                child: ListView(
+                  controller: _scrollController,
+                  padding: const EdgeInsets.all(16),
+                  children: [
+                    _buildHeader(publication),
+                    const SizedBox(height: 20),
+                    _buildMyReviewCard(publication),
+                    const SizedBox(height: 20),
+                    const Divider(),
+                    const SizedBox(height: 8),
+                    _buildConversationThread(publication),
+                  ],
+                ),
               ),
+              _buildCommentInput(publication.id),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  /// Écran de verrouillage affiché AVANT tout contenu payant non débloqué
+  /// (même habillage que le paywall du lecteur : fond navy, cadenas, bouton
+  /// « Débloquer le contenu »). Le texte s'adapte au type de publication.
+  Widget _buildPaywall(Publication publication) {
+    final isArticle = publication.pubType == 'article';
+    return Container(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [Color(0xFF0A2647), Color(0xFF144272)],
+        ),
+      ),
+      child: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(32),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.08),
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.white24),
+                  ),
+                  child: const Icon(Icons.lock_outline_rounded,
+                      color: Colors.white, size: 44),
+                ),
+                const SizedBox(height: 24),
+                const Text(
+                  'Contenu réservé aux abonnés',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 22,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: -0.3,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  isArticle
+                      ? 'Cet article est payant. Abonnez-vous ou achetez-le pour '
+                          'lire le contenu et accéder à la conversation.'
+                      : 'Vous avez atteint la limite d\'aperçu (3 pages).\n'
+                          'Abonnez-vous ou achetez ce numéro pour accéder à '
+                          'l\'intégralité du contenu.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.75),
+                    fontSize: 14,
+                    height: 1.6,
+                  ),
+                ),
+                const SizedBox(height: 28),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: () =>
+                        showSubscribeOrBuySelection(context, ref, publication),
+                    icon: const Icon(Icons.star_rounded),
+                    label: const Text('Débloquer le contenu'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF2C74B3),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 15),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14)),
+                    ),
+                  ),
+                ),
+              ],
             ),
-            _buildCommentInput(publication.id),
-          ],
+          ),
         ),
       ),
     );
@@ -445,13 +599,42 @@ class _ArticleCommentsScreenState extends ConsumerState<ArticleCommentsScreen> {
           Row(
             children: [
               Expanded(
-                child: Text(
-                  isMine ? '${message.authorName} (vous)' : message.authorName,
-                  style: TextStyle(
-                    fontWeight: FontWeight.w800,
-                    fontSize: 12,
-                    color: isMine ? const Color(0xFF0A2647) : Colors.grey.shade700,
-                  ),
+                child: Row(
+                  children: [
+                    Flexible(
+                      child: Text(
+                        isMine ? '${message.authorName} (vous)' : message.authorName,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 12,
+                          color: isMine ? const Color(0xFF0A2647) : Colors.grey.shade700,
+                        ),
+                      ),
+                    ),
+                    // ─── AJOUT : badge de compte visible dans les
+                    // conversations (Membre Standard/Premium, Super
+                    // utilisateur, Compte vérifié) — pour savoir en un
+                    // coup d'œil quel type de compte a écrit le message.
+                    if (message.authorBadge != null) ...[
+                      const SizedBox(width: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: Colors.amber.shade100,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          message.authorBadge!,
+                          style: TextStyle(
+                            fontSize: 9,
+                            fontWeight: FontWeight.w800,
+                            color: Colors.amber.shade900,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
               ),
               if (isReview) ...[
@@ -476,7 +659,12 @@ class _ArticleCommentsScreenState extends ConsumerState<ArticleCommentsScreen> {
                 style: TextStyle(fontSize: 10, color: Colors.grey.shade400),
               ),
               const Spacer(),
-              if (!isReview)
+              // ─── CORRECTIF : impossible de répondre à son propre message ──
+              // (demande explicite : "pourquoi puis-je me répondre à moi
+              // même ? ce n'est pas logique"). Le bouton Répondre n'apparaît
+              // plus sur ses propres messages — on peut toujours répondre
+              // aux autres et supprimer le sien.
+              if (!isReview && !isMine)
                 InkWell(
                   onTap: () {
                     setState(() => _replyingTo = message);

@@ -7,7 +7,7 @@ plugins {
 }
 
 android {
-    namespace = "com.example.digitalpress"
+    namespace = "com.digitalpress.app"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -23,7 +23,7 @@ android {
 
     defaultConfig {
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "com.example.digitalpress"
+        applicationId = "com.digitalpress.app"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion
@@ -31,12 +31,6 @@ android {
         versionCode = flutter.versionCode
         versionName = flutter.versionName
         multiDexEnabled = true
-
-        ndk {
-            // Téléphones physiques = ARM uniquement. x86/x86_64 = émulateurs seulement.
-            // Exclure x86 évite l'erreur de compilation native jni sur Windows.
-            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
-        }
     }
 
     buildTypes {

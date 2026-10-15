@@ -2,6 +2,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:digital_press/core/api/api_client.dart';
 import 'package:digital_press/config/api_constants.dart';
 import 'package:digital_press/model/conversation.dart';
+import 'app_notification_service.dart';
+
+
 
 final conversationServiceProvider = Provider<ConversationService>((ref) {
   final apiClient = ref.watch(apiClientProvider);
@@ -21,7 +24,7 @@ class ConversationService {
     );
     final results = res.data as List? ?? [];
     return results
-        .map((j) => Conversation.fromJson(j as Map<String, dynamic>))
+        .map((j) => Conversation.fromJson(j ))
         .toList();
   }
 
@@ -68,8 +71,30 @@ class ConversationListState {
 
 class ConversationListNotifier extends StateNotifier<ConversationListState> {
   final ConversationService _service;
+  final Ref _ref;
 
-  ConversationListNotifier(this._service) : super(const ConversationListState());
+  ConversationListNotifier(this._service, this._ref)
+      : super(const ConversationListState()) {
+    // Réutilise le flux de notifications déjà branché en WebSocket (voir
+    // app_notification_service.dart) plutôt que d'ouvrir une connexion
+    // supplémentaire : dès qu'une notification 'new_comment'/'new_reply'
+    // arrive (donc en temps réel), on sait qu'une conversation a bougé et
+    // on recharge la liste — même badge "temps réel" que WhatsApp, sans
+    // canal WebSocket dédié en plus.
+    int previousCount = 0;
+    _ref.listen<AsyncValue<List<AppNotification>>>(appNotificationsProvider,
+        (previous, next) {
+      final list = next.asData?.value;
+      if (list == null) return;
+      final relevant = list
+          .where((n) => n.typeNotif == 'new_comment' || n.typeNotif == 'new_reply')
+          .length;
+      if (relevant > previousCount) {
+        load();
+      }
+      previousCount = relevant;
+    });
+  }
 
   Future<void> load({String? search}) async {
     state = state.copyWith(isLoading: true, error: null);
@@ -121,5 +146,5 @@ class ConversationListNotifier extends StateNotifier<ConversationListState> {
 final conversationListProvider =
     StateNotifierProvider<ConversationListNotifier, ConversationListState>((ref) {
   final service = ref.watch(conversationServiceProvider);
-  return ConversationListNotifier(service);
+  return ConversationListNotifier(service, ref);
 });

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../../core/exceptions/failures.dart';
 import '../../core/services/auth_service.dart';
 
 /// Dernière étape du flux de réinitialisation de mot de passe : l'utilisateur
@@ -54,7 +55,8 @@ class _ResetNewPasswordScreenState
       }
     } catch (e) {
       if (mounted) {
-        _showSnackBar(e.toString(), isError: true);
+        final msg = e is Failure ? e.message : e.toString().replaceAll('Exception: ', '').trim();
+        _showSnackBar(msg, isError: true);
       }
     } finally {
       if (mounted) setState(() => _isLoading = false);

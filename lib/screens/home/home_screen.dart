@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:ui';
 import 'package:digital_press/widgets/subscribe_or_buy_sheet.dart';
 import 'package:flutter/material.dart';
@@ -5,7 +6,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/services/auth_service.dart';
 import '../categories/categories_screen.dart';
 import '../conversations/conversations_screen.dart';
-import '../roadmap/feature_roadmap_screen.dart';
+import '../poster/poster_subscribers_screen.dart';
+import '../admin/admin_categories_screen.dart';
 import '../profile/profile_screen.dart';
 import 'package:go_router/go_router.dart';
 import '../../model/publication.dart';
@@ -29,6 +31,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   final TextEditingController _searchController = TextEditingController();
   bool _isGridView = true;
 
+  /// Anti-anti-rebond : la recherche n'appelle le backend que 350 ms après
+  /// la dernière frappe, au lieu d'une requête par caractère tapé.
+  Timer? _searchDebounce;
+
   final List<String> _categories = [
     'Tous',
     'Actualités',
@@ -51,6 +57,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
     _searchController.dispose();
     super.dispose();
   }
@@ -65,12 +72,26 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   }
 
   /// Admin et Éditeur n'ont plus de sens à voir la page "Catégories" (page
-  /// réservée au Lecteur) : elle est remplacée, pour ces deux rôles, par la
-  /// page "Fonctionnalités à venir" (fonctionnalités pas encore
-  /// implémentées mais utiles, à suivre/proposer).
-  bool _secondTabIsFeatureRoadmap(WidgetRef ref) {
+  /// réservée au Lecteur) : remplacée par une vraie fonctionnalité propre à
+  /// chaque rôle — "Mes abonnés" côté Éditeur, "Gestion des catégories"
+  /// côté Admin (l'espace retrait éditeur a été supprimé de la plateforme).
+  ///
+  /// [embedded=true] : quand ces pages s'affichent dans les 4 onglets
+  /// principaux, leur en-tête reprend celui des autres pages principales
+  /// (logo + titre à gauche, icônes à droite). Sur leurs propres routes
+  /// (/poster/subscribers, /admin/categories) elles gardent leur en-tête
+  /// actuel — voir la demande explicite sur ce point.
+  Widget? _secondTabRoleScreen(WidgetRef ref) {
     final user = ref.watch(authServiceProvider).currentUser;
-    return user != null && (user.isAdmin || user.isPublisher);
+    if (user == null) return null;
+    if (user.isAdmin) return const AdminCategoriesScreen(embedded: true);
+    if (user.isPublisher) return const PosterSubscribersScreen(embedded: true);
+    return null;
+  }
+
+  bool _isAdmin(WidgetRef ref) {
+    final user = ref.watch(authServiceProvider).currentUser;
+    return user?.isAdmin ?? false;
   }
 
   Widget _buildBody() {
@@ -78,9 +99,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       case 0:
         return _buildHomeTab();
       case 1:
-        return _secondTabIsFeatureRoadmap(ref)
-            ? const FeatureRoadmapScreen()
-            : _buildCategoriesTab();
+        return _secondTabRoleScreen(ref) ?? _buildCategoriesTab();
       case 2:
         return _buildConversationsTab();
       case 3:
@@ -93,9 +112,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   Widget _buildHomeTab() {
     final pubState = ref.watch(publicationListProvider);
     final items = pubState.items;
+    // Vitrine « À la une » : mises en avant payantes/plan + tendances (fort
+    // nombre de vues sur une courte période) — servies par le backend.
+    final featuredAsync = ref.watch(featuredProvider);
+    final featuredList = featuredAsync.valueOrNull?['featured'] ?? [];
+    final trendingList = featuredAsync.valueOrNull?['trending'] ?? [];
 
     return RefreshIndicator(
       onRefresh: () async {
+        ref.invalidate(featuredProvider);
         await ref.read(publicationListProvider.notifier).load(
               refresh: true,
               search: _searchController.text.isEmpty
@@ -107,9 +132,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       },
       child: CustomScrollView(
         slivers: [
+          // ─── EN-TÊTE ACCUEIL (agrandi) ───────────────────────────────
+          // Logo + « DigitalPress » collés à gauche et mis en avant, les 3
+          // icônes (grille/liste, cloche, avatar) sur la même ligne collées
+          // à droite et plus petites, puis le message de bienvenue / bon
+          // retour sur la ligne suivante (uniquement sur l'accueil).
           MainAppBar(
             title: 'DigitalPress',
             showLogo: true,
+            showWelcome: true,
+            enlarged: true,
             extraAction: Container(
               margin: const EdgeInsets.only(right: 4),
               decoration: BoxDecoration(
@@ -117,14 +149,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                 shape: BoxShape.circle,
               ),
               child: IconButton(
-                padding: const EdgeInsets.all(8),
+                padding: const EdgeInsets.all(6),
                 constraints: const BoxConstraints(),
                 icon: Icon(
                   _isGridView
                       ? Icons.view_list_rounded
                       : Icons.grid_view_rounded,
                   color: const Color(0xFF0A2647),
-                  size: 20,
+                  size: 18,
                 ),
                 onPressed: () {
                   setState(() {
@@ -137,6 +169,21 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           SliverToBoxAdapter(child: _buildSearchBar()),
           SliverToBoxAdapter(child: _buildRoleAccessButton(ref)),
           SliverToBoxAdapter(child: _buildCategoryChips()),
+          // Section « À la une » : publications mises en avant (payantes ou
+          // plan) — repli sur les plus récentes si aucune n'est marquée.
+          SliverToBoxAdapter(
+            child: _buildFeaturedSection(
+              items,
+              featuredList: featuredList,
+            ),
+          ),
+          // Section « Tendances » : publications à fort nombre de vues sur
+          // une courte période (nombre impressionnant de vues en peu de
+          // temps) — calculé côté backend sur les 48 dernières heures.
+          if (trendingList.isNotEmpty)
+            SliverToBoxAdapter(
+              child: _buildTrendingSection(trendingList),
+            ),
           if (pubState.isLoading && items.isEmpty)
             const SliverToBoxAdapter(
               child: Center(
@@ -171,6 +218,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                 ),
               ),
             ),
+          // ─── CORRECTIF : espace en bas pour que toutes les cartes soient
+          // entièrement visibles en scrollant jusqu'en bas (la barre de
+          // navigation flottante ne masque plus les dernières cartes).
+          const SliverToBoxAdapter(child: SizedBox(height: 140)),
         ],
       ),
     );
@@ -188,7 +239,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         child: SizedBox(
           width: double.infinity,
           child: ElevatedButton.icon(
-            onPressed: () => context.push('/admin'),
+            onPressed: () async {
+              await context.push('/admin');
+              if (mounted) {
+                ref.read(publicationListProvider.notifier).load(refresh: true);
+              }
+            },
             icon: const Icon(Icons.admin_panel_settings),
             label: const Text('Accéder à l’espace Admin'),
             style: ElevatedButton.styleFrom(
@@ -211,7 +267,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         child: SizedBox(
           width: double.infinity,
           child: ElevatedButton.icon(
-            onPressed: () => context.push('/poster'),
+            onPressed: () async {
+              await context.push('/poster');
+              if (mounted) {
+                ref.read(publicationListProvider.notifier).load(refresh: true);
+              }
+            },
             icon: const Icon(Icons.edit_note),
             label: const Text('Accéder à l’espace Éditeur'),
             style: ElevatedButton.styleFrom(
@@ -254,6 +315,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
               ? IconButton(
                   icon: Icon(Icons.clear_rounded, color: Colors.grey.shade400),
                   onPressed: () {
+                    // Annule toute recherche en attente puis recharge sans filtre.
+                    _searchDebounce?.cancel();
                     setState(() {
                       _searchController.clear();
                     });
@@ -274,26 +337,46 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         ),
         onChanged: (value) {
           setState(() {});
-          ref.read(publicationListProvider.notifier).load(
-                refresh: true,
-                category:
-                    _selectedCategory == 'Tous' ? null : _selectedCategory,
-                search: value.isEmpty ? null : value,
-              );
+          // Debounce : on attend que l'utilisateur arrête de taper avant de
+          // lancer la requête (économie de requêtes + évite les courses).
+          _searchDebounce?.cancel();
+          _searchDebounce = Timer(const Duration(milliseconds: 350), () {
+            if (!mounted) return;
+            ref.read(publicationListProvider.notifier).load(
+                  refresh: true,
+                  category:
+                      _selectedCategory == 'Tous' ? null : _selectedCategory,
+                  search: value.isEmpty ? null : value,
+                );
+          });
         },
       ),
     );
   }
 
   Widget _buildCategoryChips() {
+    final categoriesAsync = ref.watch(categoriesProvider);
+    final dynamicCategories = categoriesAsync.maybeWhen(
+      data: (cats) {
+        final names = cats
+            .map((c) => (c['name'] ?? '').toString().trim())
+            .where((s) => s.isNotEmpty)
+            .toList();
+        return ['Tous', ...names];
+      },
+      orElse: () => _categories,
+    );
+    final categories = dynamicCategories.toSet().toList();
+    if (!categories.contains('Tous')) categories.insert(0, 'Tous');
+
     return SizedBox(
       height: 50,
       child: ListView.builder(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 16),
-        itemCount: _categories.length,
+        itemCount: categories.length,
         itemBuilder: (context, index) {
-          final category = _categories[index];
+          final category = categories[index];
           final isSelected = _selectedCategory == category;
           return Padding(
             padding: const EdgeInsets.only(right: 8),
@@ -502,6 +585,41 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                       ),
                     ),
                   ),
+                  // Badge du type de publication (Article, Magazine…)
+                  Positioned(
+                    bottom: 8,
+                    left: 12,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF2C74B3).withAlpha(220),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            _publicationTypeIcon(publication),
+                            size: 10,
+                            color: Colors.white,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            _publicationTypeLabel(publication),
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 8,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: 0.4,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -538,7 +656,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Text(
-                        '${price.toStringAsFixed(0)} F',
+                        price > 0 ? '${price.toStringAsFixed(0)} F' : ' lire',
                         style: const TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.w900,
@@ -668,7 +786,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         Text(
-                          '${price.toStringAsFixed(0)} F',
+                          price > 0 ? '${price.toStringAsFixed(0)} F' : ' lire',
                           style: const TextStyle(
                             fontSize: 14,
                             fontWeight: FontWeight.w900,
@@ -711,6 +829,324 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     );
   }
 
+  /// Carrousel « À la une » : grandes cartes dégradées sur l'image de
+  /// couverture. Alimenté par l'endpoint dédié (mises en avant payantes ou
+  /// plan), avec repli sur les publications marquées is_featured puis sur
+  /// les plus récentes si la vitrine est vide. La vitrine peut contenir
+  /// jusqu'à 12 publications (demande explicite).
+  Widget _buildFeaturedSection(
+    List<Publication> items, {
+    required List<Publication> featuredList,
+  }) {
+    if (items.isEmpty && featuredList.isEmpty) return const SizedBox.shrink();
+    final fromEndpoint = featuredList.where((p) => p.isFeatured).toList();
+    const maxFeatured = 12;
+    final carousel = fromEndpoint.isNotEmpty
+        ? fromEndpoint.take(maxFeatured).toList()
+        : (items.where((p) => p.isFeatured).take(maxFeatured).isNotEmpty
+            ? items.where((p) => p.isFeatured).take(maxFeatured).toList()
+            : items.take(maxFeatured).toList());
+    if (carousel.isEmpty) return const SizedBox.shrink();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+          child: Row(
+            children: [
+              const Icon(Icons.star_rounded, color: Color(0xFFB45309), size: 20),
+              const SizedBox(width: 6),
+              Text(
+                'À LA UNE',
+                style: TextStyle(
+                  color: const Color(0xFFB45309),
+                  fontWeight: FontWeight.w900,
+                  fontSize: 14,
+                  letterSpacing: 0.8,
+                ),
+              ),
+            ],
+          ),
+        ),
+        SizedBox(
+          height: 240,
+          child: ListView.builder(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+            itemCount: carousel.length,
+            itemBuilder: (context, index) {
+              final pub = carousel[index];
+              return Padding(
+                padding: const EdgeInsets.only(right: 12),
+                child: _buildFeaturedCard(pub),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// Section « Tendances » : publications qui explosent en vues sur une
+  /// courte période, présentées en cartes horizontales.
+  Widget _buildTrendingSection(List<Publication> trending) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+          child: Row(
+            children: [
+              const Icon(Icons.local_fire_department_rounded,
+                  color: Color(0xFFE8590C), size: 20),
+              const SizedBox(width: 6),
+              Text(
+                'TENDANCES 🔥',
+                style: TextStyle(
+                  color: const Color(0xFFE8590C),
+                  fontWeight: FontWeight.w900,
+                  fontSize: 14,
+                  letterSpacing: 0.8,
+                ),
+              ),
+            ],
+          ),
+        ),
+        SizedBox(
+          height: 130,
+          child: ListView.builder(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+            itemCount: trending.length,
+            itemBuilder: (context, index) {
+              final pub = trending[index];
+              return Padding(
+                padding: const EdgeInsets.only(right: 12),
+                child: _buildTrendingCard(pub),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildTrendingCard(Publication pub) {
+    return GestureDetector(
+      onTap: () => showSubscribeOrBuySelection(context, ref, pub),
+      child: Container(
+        width: 240,
+        clipBehavior: Clip.antiAlias,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.grey.shade200),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withAlpha(12),
+              blurRadius: 12,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            SizedBox(
+              width: 84,
+              height: 130,
+              child: _buildPublicationCover(pub, width: 84, height: 130),
+            ),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.all(10),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      pub.title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w800,
+                        color: Colors.black87,
+                        height: 1.2,
+                      ),
+                    ),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(Icons.visibility_outlined,
+                                size: 12, color: Colors.grey.shade600),
+                            const SizedBox(width: 4),
+                            Text('${pub.viewsCount} vues',
+                                style: TextStyle(
+                                    fontSize: 11,
+                                    color: Colors.grey.shade600)),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          pub.prix > 0
+                              ? '${pub.prix.toStringAsFixed(0)} F'
+                              : ' lire',
+                          style: const TextStyle(
+                            color: Color(0xFF56B4E9),
+                            fontSize: 13,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFeaturedCard(Publication pub) {
+    final category = pub.categoryName ?? 'Actualités';
+    return GestureDetector(
+      onTap: () => showSubscribeOrBuySelection(context, ref, pub),
+      child: Container(
+        width: 300,
+        clipBehavior: Clip.antiAlias,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(24),
+          color: Colors.white,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withAlpha(25),
+              blurRadius: 18,
+              offset: const Offset(0, 8),
+            ),
+          ],
+        ),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            _buildPublicationCover(pub,
+                width: double.infinity, height: double.infinity),
+            // Voile dégradé navy → transparent pour la lisibilité du texte.
+            const DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [Colors.transparent, Color(0xB30A2647)],
+                ),
+              ),
+            ),
+            Positioned(
+              top: 14,
+              left: 14,
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                decoration: BoxDecoration(
+                  color: Colors.white.withAlpha(235),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  category.toUpperCase(),
+                  style: const TextStyle(
+                    color: Color(0xFF0A2647),
+                    fontSize: 10,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+              ),
+            ),
+            Positioned(
+              left: 16,
+              right: 16,
+              bottom: 14,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    pub.title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w900,
+                      height: 1.2,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Icon(Icons.visibility_outlined,
+                          color: Colors.white70, size: 14),
+                      const SizedBox(width: 4),
+                      Text('${pub.viewsCount} vues',
+                          style:
+                              const TextStyle(color: Colors.white70, fontSize: 11)),
+                      const Spacer(),
+                      Text(
+                        pub.prix > 0
+                            ? '${pub.prix.toStringAsFixed(0)} F'
+                            : ' lire',
+                        style: const TextStyle(
+                          color: Color(0xFF56B4E9),
+                          fontSize: 15,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Petit libellé du type de publication (Article, Magazine, Journal,
+  /// Rapport, E-book) — chaque type est identifiable dès la liste.
+  String _publicationTypeLabel(Publication pub) {
+    switch (pub.pubType) {
+      case 'magazine':
+        return 'MAGAZINE';
+      case 'journal':
+        return 'JOURNAL';
+      case 'report':
+        return 'RAPPORT';
+      case 'ebook':
+        return 'E-BOOK';
+      default:
+        return 'ARTICLE';
+    }
+  }
+
+  IconData _publicationTypeIcon(Publication pub) {
+    switch (pub.pubType) {
+      case 'magazine':
+        return Icons.auto_stories_rounded;
+      case 'journal':
+        return Icons.newspaper_rounded;
+      case 'report':
+        return Icons.insert_drive_file_rounded;
+      case 'ebook':
+        return Icons.menu_book_rounded;
+      default:
+        return Icons.article_rounded;
+    }
+  }
+
   Widget _buildPublicationCover(Publication publication,
       {double? width, double? height}) {
     if (publication.videoUrl.isNotEmpty) {
@@ -719,43 +1155,71 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         height: height,
         child: ClipRRect(
           borderRadius: BorderRadius.circular(16),
+          // Vidéo de couverture : se joue automatiquement UNE seule fois à
+          // l'affichage, puis la lecture passe sous le contrôle du lecteur.
           child: ShortVideoPlayer(
             videoUrl: publication.videoUrl,
             title: publication.title,
+            autoPlayOnce: true,
           ),
         ),
       );
     }
-
-    final imageUrl =
-        publication.coverImage.isNotEmpty ? publication.coverImage : '';
+    // Couverture image ou, à défaut, un fond dégradé avec l'icône du type
+    // (une publication sans aucune couverture ne doit plus jamais apparaître
+    // en blanc / image cassée).
+    final hasImage = publication.coverImage.isNotEmpty;
     return SizedBox(
       width: width,
       height: height,
-      child: CachedNetworkImage(
-        imageUrl: imageUrl,
-        width: width,
-        height: height,
-        fit: BoxFit.cover,
-        placeholder: (context, url) => Container(
-          width: width,
-          height: height,
-          color: Colors.grey.shade200,
-          child: const Center(
-            child: CircularProgressIndicator(),
-          ),
+      child: hasImage
+          ? CachedNetworkImage(
+              imageUrl: publication.coverImage,
+              width: width,
+              height: height,
+              fit: BoxFit.cover,
+              // Placeholder : même dégradé que le fallback (jamais un carré
+              // gris « cassé » pendant le chargement) + petit spinner discret.
+              placeholder: (context, url) => Stack(
+                fit: StackFit.expand,
+                children: [
+                  _buildCoverFallback(publication, width, height),
+                  const Center(
+                    child: SizedBox(
+                      width: 22,
+                      height: 22,
+                      child: CircularProgressIndicator(strokeWidth: 2.5),
+                    ),
+                  ),
+                ],
+              ),
+              errorWidget: (context, url, error) =>
+                  _buildCoverFallback(publication, width, height),
+            )
+          : _buildCoverFallback(publication, width, height),
+    );
+  }
+
+  /// Fond dégradé avec l'icône du type de publication — utilisé quand la
+  /// publication n'a ni image ni vidéo de couverture (ou que l'image est
+  /// cassée), pour ne jamais afficher un carré blanc ou une image cassée.
+  Widget _buildCoverFallback(Publication publication, double? width, double? height) {
+    return Container(
+      width: width,
+      height: height,
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFF0A2647), Color(0xFF2C74B3)],
         ),
-        errorWidget: (context, url, error) {
-          return Container(
-            width: width,
-            height: height,
-            color: Colors.grey.shade200,
-            child: Icon(
-              Icons.image_not_supported_rounded,
-              color: Colors.grey.shade400,
-            ),
-          );
-        },
+      ),
+      child: Center(
+        child: Icon(
+          _publicationTypeIcon(publication),
+          color: Colors.white70,
+          size: 36,
+        ),
       ),
     );
   }
@@ -769,11 +1233,20 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   }
 
   Widget _buildProfileTab() {
+    final user = ref.read(authServiceProvider).currentUser;
+    if (user == null) {
+      // Redirect immediately to login - no intermediate screen
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (context.mounted) context.go('/auth/login');
+      });
+      return const SizedBox.shrink();
+    }
     return const ProfileScreen();
   }
 
   Widget _buildBottomNavigationBar() {
-    final isAdminOrEditeur = _secondTabIsFeatureRoadmap(ref);
+    final isAdminOrEditeur = _secondTabRoleScreen(ref) != null;
+    final isAdmin = _isAdmin(ref);
 
     return SafeArea(
       child: Padding(
@@ -810,12 +1283,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                   ),
                   _buildNavItem(
                     icon: isAdminOrEditeur
-                        ? Icons.rocket_launch_outlined
+                        ? (isAdmin
+                            ? Icons.category_outlined
+                            : Icons.people_alt_outlined)
                         : Icons.dashboard_customize_outlined,
                     activeIcon: isAdminOrEditeur
-                        ? Icons.rocket_launch_rounded
+                        ? (isAdmin
+                            ? Icons.category_rounded
+                            : Icons.people_alt_rounded)
                         : Icons.dashboard_customize_rounded,
-                    label: isAdminOrEditeur ? 'À venir' : 'Catégories',
+                    label: isAdminOrEditeur
+                        ? (isAdmin ? 'Catégories' : 'Abonnés')
+                        : 'Catégories',
                     index: 1,
                   ),
                   _buildNavItem(
@@ -849,6 +1328,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: () {
+        // If user is not logged in and taps Profile tab → go directly to login
+        if (index == 3) {
+          final user = ref.read(authServiceProvider).currentUser;
+          if (user == null) {
+            context.go('/auth/login');
+            return;
+          }
+        }
         setState(() {
           _selectedIndex = index;
         });

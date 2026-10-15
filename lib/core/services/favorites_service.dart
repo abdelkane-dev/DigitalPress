@@ -3,6 +3,9 @@ import 'package:digital_press/core/api/api_client.dart';
 import 'package:digital_press/config/api_constants.dart';
 import 'package:digital_press/model/reader_category.dart';
 import 'package:digital_press/model/favorite_article.dart';
+import 'app_notification_service.dart';
+
+
 
 final favoritesServiceProvider = Provider<FavoritesService>((ref) {
   final apiClient = ref.watch(apiClientProvider);
@@ -23,12 +26,12 @@ class FavoritesService {
     } else {
       results = [];
     }
-    return results.map((j) => ReaderCategory.fromJson(j as Map<String, dynamic>)).toList();
+    return results.map((j) => ReaderCategory.fromJson(j )).toList();
   }
 
   Future<ReaderCategory> createReaderCategory(String name) async {
     final res = await _api.post(ApiConstants.readerCategories, data: {'name': name});
-    return ReaderCategory.fromJson(res.data as Map<String, dynamic>);
+    return ReaderCategory.fromJson(res.data );
   }
 
   Future<void> deleteReaderCategory(int id) async {
@@ -50,7 +53,7 @@ class FavoritesService {
     } else {
       results = [];
     }
-    return results.map((j) => FavoriteArticle.fromJson(j as Map<String, dynamic>)).toList();
+    return results.map((j) => FavoriteArticle.fromJson(j )).toList();
   }
 
   /// Ajoute un article aux favoris (ou met à jour ses catégories s'il y est
@@ -70,12 +73,17 @@ class FavoritesService {
 
 final readerCategoriesProvider =
     FutureProvider.autoDispose<List<ReaderCategory>>((ref) async {
+  ref.watch(realtimeEventProvider);
   final service = ref.watch(favoritesServiceProvider);
   return service.getReaderCategories();
 });
 
 final favoritesProvider =
     FutureProvider.autoDispose.family<List<FavoriteArticle>, int?>((ref, categoryId) async {
+  // Se recharge automatiquement dès qu'un événement 'favorites_updated'
+  // arrive par WebSocket (ajout/retrait depuis un autre appareil du même
+  // compte, par exemple) — pas besoin de rafraîchir manuellement.
+  ref.watch(realtimeEventProvider);
   final service = ref.watch(favoritesServiceProvider);
   return service.getFavorites(categoryId: categoryId);
 });

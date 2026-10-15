@@ -1,5 +1,5 @@
-import 'dart:io';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import '../core/io_helper/io_helper.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
 import 'package:path_provider/path_provider.dart';
@@ -153,9 +153,9 @@ class ReaderViewModel extends StateNotifier<ReaderState> {
     try {
       final appDir = await getApplicationDocumentsDirectory();
       final localPath = '${appDir.path}/cached_journal_$id.pdf';
-      final file = File(localPath);
-
-      if (await file.exists()) {
+      if (kIsWeb) return;
+      final fileExists = await nativeFileExists(localPath);
+      if (fileExists) {
         await _downloadService.saveDownloadLocation(id.toString(), localPath);
         if (mounted) {
           state = state.copyWith(localFilePath: localPath, isLoading: false);
@@ -193,7 +193,8 @@ class ReaderViewModel extends StateNotifier<ReaderState> {
     final path = await _downloadService.getDownloadLocation(journalId);
     if (path != null) {
       // Vérifier si le fichier existe toujours
-      if (File(path).existsSync()) {
+      final exists = await nativeFileExists(path);
+      if (exists) {
         state = state.copyWith(localFilePath: path);
       }
     }

@@ -11,7 +11,6 @@ class PaymentSelectionSheet extends ConsumerWidget {
   final bool isSubscribed;
   final bool isRecharge;
   final bool isSubscription;
-  final bool isResellRight;
   final int? abonnementId;
   final String? journalTitle;
   final VoidCallback? onPaymentSuccess;
@@ -23,7 +22,6 @@ class PaymentSelectionSheet extends ConsumerWidget {
     this.isSubscribed = false,
     this.isRecharge = false,
     this.isSubscription = false,
-    this.isResellRight = false,
     this.abonnementId,
     this.journalTitle,
     this.onPaymentSuccess,
@@ -45,17 +43,6 @@ class PaymentSelectionSheet extends ConsumerWidget {
             children: [
               _buildHeader(context),
               const SizedBox(height: 24),
-              // --- MODE DE TEST ---
-              _buildPaymentOption(
-                context,
-                ref,
-                title: 'Simulation (Test)',
-                subtitle: 'Paiement fictif pour tester (Immédiat)',
-                icon: Icons.bug_report_rounded,
-                color: Colors.green.shade600,
-                type: PaymentMethodType.simulation,
-              ),
-              const SizedBox(height: 12),
               // Mode de paiement Portefeuille
               _buildPaymentOption(
                 context,
@@ -71,7 +58,7 @@ class PaymentSelectionSheet extends ConsumerWidget {
                 context,
                 ref,
                 title: 'Wave',
-                subtitle: 'Rapide et sans frais',
+                subtitle: 'Rapide et sécurisé',
                 icon: Icons.water_drop_rounded,
                 color: const Color(0xFF49B8E7),
                 type: PaymentMethodType.wave,
@@ -101,7 +88,7 @@ class PaymentSelectionSheet extends ConsumerWidget {
                 context,
                 ref,
                 title: 'Carte Bancaire',
-                subtitle: 'Visa, Mastercard, etc.',
+                subtitle: 'Visa, Mastercard — CinetPay',
                 icon: Icons.credit_card_rounded,
                 color: const Color(0xFF635BFF),
                 type: PaymentMethodType.stripe,
@@ -180,7 +167,6 @@ class PaymentSelectionSheet extends ConsumerWidget {
               paymentMethodName: title,
               abonnementId: abonnementId,
               isSubscription: isSubscription,
-              isResellRight: isResellRight,
               isRecharge: isRecharge,
             ),
           ),

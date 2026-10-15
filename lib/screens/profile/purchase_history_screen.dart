@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/api/api_client.dart';
+import '../../core/services/app_notification_service.dart';
 import '../../config/api_constants.dart';
 
 class PurchaseHistoryScreen extends ConsumerStatefulWidget {
@@ -21,6 +22,9 @@ class _PurchaseHistoryScreenState
   void initState() {
     super.initState();
     _loadTransactions();
+    ref.listenManual(realtimeEventProvider, (previous, next) {
+      if (next != null) _loadTransactions();
+    });
   }
 
   Future<void> _loadTransactions() async {

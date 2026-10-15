@@ -23,7 +23,7 @@ subprojects {
                     val getNamespace = android.javaClass.getMethod("getNamespace")
                     val setNamespace = android.javaClass.getMethod("setNamespace", String::class.java)
                     if (getNamespace.invoke(android) == null) {
-                        val fallback = "com.example.digitalpress.${project.name.replace("-", "_").replace(".", "_")}"
+                        val fallback = "com.digitalpress.app.${project.name.replace("-", "_").replace(".", "_")}"
                         setNamespace.invoke(android, fallback)
                     }
                 } catch (e: Exception) {

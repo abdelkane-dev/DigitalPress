@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/services/admin_demo_store.dart';
+import '../../core/utils/friendly_error.dart';
 
 class CreatePosterScreen extends ConsumerStatefulWidget {
   const CreatePosterScreen({super.key});
@@ -48,7 +49,7 @@ class _CreatePosterScreenState extends ConsumerState<CreatePosterScreen> {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Erreur lors de la création : $e'),
+            content: Text(friendlyError(e)),
             backgroundColor: Colors.red,
           ),
         );

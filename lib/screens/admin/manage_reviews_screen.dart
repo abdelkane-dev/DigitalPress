@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/api/api_client.dart';
+import '../../core/services/app_notification_service.dart';
 
 /// Modération des avis lecteurs par un administrateur : consultation de
 /// l'ensemble des avis de la plateforme et suppression de ceux jugés
@@ -23,6 +24,9 @@ class _ManageReviewsScreenState extends ConsumerState<ManageReviewsScreen> {
   void initState() {
     super.initState();
     _load();
+    ref.listenManual(realtimeEventProvider, (previous, next) {
+      if (next != null) _load();
+    });
   }
 
   Future<void> _load() async {
@@ -39,7 +43,7 @@ class _ManageReviewsScreenState extends ConsumerState<ManageReviewsScreen> {
       final raw = response.data is Map
           ? (response.data['results'] as List? ?? [])
           : (response.data as List? ?? []);
-      _reviews = raw.cast<Map<String, dynamic>>();
+      _reviews = raw.map((e) => e is Map ? Map<String, dynamic>.from(e) : <String, dynamic>{}).toList();
     } catch (e) {
       _error = e.toString();
     } finally {

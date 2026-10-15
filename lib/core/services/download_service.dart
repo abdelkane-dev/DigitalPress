@@ -79,13 +79,27 @@ class DownloadService {
     if (kIsWeb) return false;
 
     if (PlatformHelper.isAndroid) {
-      final status = await Permission.storage.request();
-      if (status.isGranted) return true;
+      // ─── BUG CORRIGÉ ────────────────────────────────────────────────
+      // Avant : que l'utilisateur accepte ou refuse TOUTES les demandes,
+      // la fonction retournait quand même `true` inconditionnellement
+      // (le `return true` final n'était jamais atteint que par les
+      // plateformes non-Android, mais s'appliquait aussi après un échec
+      // Android faute de `return false` explicite). Le code appelant ne
+      // pouvait donc jamais détecter un refus réel de permission.
+      final storageStatus = await Permission.storage.request();
+      if (storageStatus.isGranted) return true;
 
-      // Android 13+ permissions
-      if (await Permission.photos.request().isGranted) return true;
-      if (await Permission.videos.request().isGranted) return true;
-      if (await Permission.audio.request().isGranted) return true;
+      // Android 13+ : permissions granulaires. Permission.photos ET
+      // Permission.videos correspondent bien à des permissions déclarées
+      // (READ_MEDIA_IMAGES, READ_MEDIA_VIDEO) — la plateforme distribue
+      // réellement des publications vidéo (Publication.video_url), donc
+      // les deux sont légitimes. Permission.audio n'a pas d'équivalent
+      // manifeste (aucun contenu audio sur la plateforme) et échouerait
+      // silencieusement sur Android 13+, donc on ne la demande pas.
+      final photosStatus = await Permission.photos.request();
+      if (photosStatus.isGranted) return true;
+      final videosStatus = await Permission.videos.request();
+      return videosStatus.isGranted;
     }
 
     // iOS, macOS, Windows, Linux — pas de permission de stockage nécessaire

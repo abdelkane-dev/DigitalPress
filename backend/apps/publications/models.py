@@ -63,7 +63,17 @@ class Publication(models.Model):
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='published')
     pub_type = models.CharField(max_length=20, choices=TYPE_CHOICES, default='article')
     is_free = models.BooleanField(default=False)
+    is_subscriber_exclusive = models.BooleanField(
+        default=False,
+        help_text="Réservé exclusivement aux lecteurs abonnés à cet éditeur — "
+                   "non achetable à l'unité, contrairement au contenu payant "
+                   "normal (voir Publication.is_accessible_by)."
+    )
     views_count = models.PositiveIntegerField(default=0)
+    is_featured = models.BooleanField(
+        default=False,
+        help_text="Mise en avant dans les listes publiques — avantage réel selon le plan plateforme de l'éditeur"
+    )
     downloads_count = models.PositiveIntegerField(default=0)
     tags = models.CharField(max_length=500, blank=True, help_text='Tags séparés par des virgules')
     created_at = models.DateTimeField(auto_now_add=True)
@@ -80,6 +90,45 @@ class Publication(models.Model):
     @property
     def tags_list(self):
         return [t.strip() for t in self.tags.split(',') if t.strip()]
+
+    def is_accessible_by(self, user):
+        """Source UNIQUE de la règle d'accès au contenu complet d'une
+        publication — remplace les deux implémentations qui existaient en
+        double (PublicationSerializer._has_full_access et
+        PublicationFileDownloadView._has_full_access), désormais réduites à
+        un simple appel à cette méthode.
+
+        Contenu "réservé aux abonnés" (is_subscriber_exclusive=True) : ne
+        peut JAMAIS être débloqué par un achat à l'unité, même si `prix` ou
+        `is_free` le permettraient normalement — seul un abonnement actif à
+        l'éditeur donne accès, exactement comme un contenu promotionnel
+        propre à chaque éditeur.
+        """
+        if not user or not getattr(user, 'is_authenticated', False):
+            return False
+        if user == self.publisher or getattr(user, 'role', None) == 'admin':
+            return True
+
+        from apps.abonnements.models import Abonnement
+        from django.utils import timezone
+        from django.db.models import Q
+
+        now = timezone.now()
+        has_active_subscription = Abonnement.objects.filter(
+            reader=user, status='active', end_date__gt=now
+        ).filter(Q(publication=self) | Q(publisher=self.publisher)).exists()
+
+        if self.is_subscriber_exclusive:
+            return has_active_subscription
+        if self.is_free or self.prix == 0:
+            return True
+        if has_active_subscription:
+            return True
+
+        from apps.paiements.models import Transaction
+        return Transaction.objects.filter(
+            payer=user, publication=self, type_transaction='purchase', status='success'
+        ).exists()
 
 
 class Review(models.Model):
@@ -223,6 +272,75 @@ class Favorite(models.Model):
 
     def __str__(self):
         return f"{self.reader.username} ♥ {self.publication.title}"
+
+
+class PublicationView(models.Model):
+    """Trace chaque vue réellement comptée d'une publication (dédupliquée à
+    30 min par visiteur dans PublicationDetailView._register_view_once).
+
+    Sert au calcul de la section « À la une » de l'accueil : les
+    publications qui accumulent un nombre impressionnant de vues en peu de
+    temps (ex: vues des 48 dernières heures) sont automatiquement mises en
+    avant côté « Tendances », indépendamment de la mise en avant payante.
+    """
+    publication = models.ForeignKey(
+        Publication, on_delete=models.CASCADE, related_name='view_events'
+    )
+    viewer_key = models.CharField(max_length=100)
+    viewed_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = _('Vue de publication')
+        verbose_name_plural = _('Vues de publications')
+        ordering = ['-viewed_at']
+        indexes = [
+            models.Index(fields=['publication', 'viewed_at']),
+        ]
+
+    def __str__(self):
+        return f"{self.publication.title} — {self.viewer_key} — {self.viewed_at}"
+
+
+class FeaturedPromotion(models.Model):
+    """Mise en avant payante d'une publication (« À la une »), façon publicité
+    Facebook : l'éditeur paie pour mettre sa publication en avant sur
+    l'accueil pendant une durée définie (7, 14 ou 30 jours).
+
+    Tant que la promotion est active, `Publication.is_featured` reste True
+    (la liste publique est triée avec -is_featured en tête). Une tâche
+    Celery quotidienne (expirer_mises_en_avant) repasse is_featured à False
+    dès que la promotion expire.
+    """
+    STATUS_CHOICES = [
+        ('pending', 'En attente de paiement'),
+        ('active', 'Active'),
+        ('expired', 'Expirée'),
+        ('cancelled', 'Annulée'),
+    ]
+
+    publication = models.ForeignKey(
+        Publication, on_delete=models.CASCADE, related_name='featured_promotions'
+    )
+    publisher = models.ForeignKey(
+        'accounts.User', on_delete=models.CASCADE, related_name='featured_promotions'
+    )
+    duration_days = models.PositiveIntegerField(default=7)
+    montant = models.DecimalField(max_digits=10, decimal_places=2)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    starts_at = models.DateTimeField(null=True, blank=True)
+    ends_at = models.DateTimeField(null=True, blank=True)
+    transaction = models.ForeignKey(
+        'paiements.Transaction', on_delete=models.SET_NULL, null=True, blank=True
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = _('Mise en avant payante')
+        verbose_name_plural = _('Mises en avant payantes')
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.publication.title} — {self.duration_days}j — {self.status}"
 
 
 class CollaborationRight(models.Model):

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/services/admin_demo_store.dart';
+import '../../core/utils/friendly_error.dart';
 import '../../model/admin_poster.dart';
 import 'poster_details_screen.dart';
 
@@ -73,7 +74,7 @@ class _ManagePostersScreenState extends ConsumerState<ManagePostersScreen> {
       } catch (e) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur lors de l\'envoi : $e')),
+          SnackBar(content: Text(friendlyError(e))),
         );
         return;
       }
@@ -137,7 +138,7 @@ class _ManagePostersScreenState extends ConsumerState<ManagePostersScreen> {
       } catch (e) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur : $e'), backgroundColor: Colors.red),
+          SnackBar(content: Text(friendlyError(e)), backgroundColor: Colors.red),
         );
       }
     }
@@ -190,6 +191,9 @@ class _ManagePostersScreenState extends ConsumerState<ManagePostersScreen> {
   }
 
   String _statusText(AdminPoster poster) {
+    // is_active=False ne peut désormais provenir que d'un bannissement
+    // explicite par un admin (accès plateforme gratuit et automatique dès
+    // la création du compte, plus aucune notion d'abonnement à payer).
     if (poster.isBanned) return 'Banni';
     if (poster.warnings > 0) return 'Sous surveillance';
     return 'Actif';

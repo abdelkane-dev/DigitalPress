@@ -20,7 +20,13 @@ Thumbs.db
 *.ipr
 *.iws
 .idea/
-.vscode/
+# .vscode/ n'est plus ignoré en bloc : extensions.json et tasks.json sont
+# partagés avec l'équipe (Baken, Franco) pour un environnement VS Code
+# identique pour tout le monde ; seuls les réglages/état propres à chaque
+# développeur restent ignorés.
+.vscode/*
+!.vscode/extensions.json
+!.vscode/tasks.json
 *.sublime-workspace
 *.sublime-project
 
@@ -32,7 +38,6 @@ venv/
 .venv/
 backend/venv/
 backend/.venv/
-backend/db.sqlite3
 backend/media/
 backend/staticfiles/
 backend/logs/
@@ -42,6 +47,10 @@ backend/logs/
 .env.*
 backend/.env
 backend/.env.*
+
+# Outils locaux / sauvegardes (jamais sur GitHub)
+.freebuff/
+*.tar.gz
 
 # Docker
 docker-compose.override.yml
@@ -64,3 +73,24 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# ─── AJOUT : caches de compilation par plateforme (absents jusqu'ici,
+# risque réel de les committer par erreur — chacun fait plusieurs dizaines
+# de Mo et se régénère automatiquement au premier build) ───────────────
+android/build/
+android/app/build/
+android/.gradle/
+android/.kotlin/
+ios/Pods/
+ios/.symlinks/
+macos/Pods/
+macos/.symlinks/
+windows/flutter/ephemeral/
+linux/flutter/ephemeral/
+
+# Fichiers parasites générés accidentellement (crashs JVM Gradle sous Windows,
+# artefacts de commandes shell mal interprétées)
+hs_err_pid*.log
+replay_pid*.log
+*.zip
+

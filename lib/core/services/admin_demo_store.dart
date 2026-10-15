@@ -3,19 +3,28 @@ import '../api/api_client.dart';
 import '../../model/admin_poster.dart';
 import '../../model/poster_warning.dart';
 import 'package:logger/logger.dart';
+import 'app_notification_service.dart';
 
 final adminDemoStoreProvider =
     StateNotifierProvider<AdminStore, List<AdminPoster>>((ref) {
   final apiClient = ref.watch(apiClientProvider);
-  return AdminStore(apiClient);
+  return AdminStore(apiClient, ref);
 });
 
 class AdminStore extends StateNotifier<List<AdminPoster>> {
   final ApiClient _apiClient;
   final _logger = Logger();
 
-  AdminStore(this._apiClient) : super([]) {
+  AdminStore(this._apiClient, Ref ref) : super([]) {
     loadPublishers();
+    // Vue d'ensemble admin en temps réel : nouvelle transaction, nouveau
+    // retrait à traiter, nouvelle vérification éditeur soumise... tout
+    // admin connecté voit la liste/les stats se mettre à jour tout seul.
+    ref.listen(realtimeEventProvider, (previous, next) {
+      if (next != null && next.event == 'admin_stats_changed') {
+        loadPublishers();
+      }
+    });
   }
 
   Future<void> loadPublishers() async {
@@ -50,15 +59,17 @@ class AdminStore extends StateNotifier<List<AdminPoster>> {
     required String password,
   }) async {
     try {
+      // Utilise l'endpoint admin dédié et protégé (IsAdmin) : l'ancien appel
+      // à 'accounts/register/' (public) ne fonctionne plus pour créer un
+      // éditeur depuis que ce endpoint force role='reader' pour des raisons
+      // de sécurité (voir accounts/serializers.py — RegisterSerializer).
       final response = await _apiClient.post(
-        'accounts/register/',
+        'accounts/admin/create-publisher/',
         data: {
           'username': email,
           'email': email,
           'password': password,
-          'password2': password,
           'name': fullName,
-          'role': 'publisher',
           'company_name': mediaName,
         },
       );

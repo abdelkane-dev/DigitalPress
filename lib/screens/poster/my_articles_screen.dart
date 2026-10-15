@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/services/publication_service.dart';
+import '../../widgets/feature_publication_sheet.dart';
 import 'edit_article_screen.dart';
 import 'article_detail_screen.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -156,7 +157,62 @@ class MyArticlesScreen extends ConsumerWidget {
                                     ),
                                   ),
                                 ),
-                                const SizedBox(width: 8),
+                                // ─── MISE EN AVANT « À LA UNE » ─────────
+                                if (article.isFeatured) ...[
+                                  const SizedBox(width: 6),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 4,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: Colors.amber.shade100,
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: const Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(Icons.star_rounded,
+                                            size: 13,
+                                            color: Color(0xFFB45309)),
+                                        SizedBox(width: 3),
+                                        Text(
+                                          'À LA UNE',
+                                          style: TextStyle(
+                                            color: Color(0xFFB45309),
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 10,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                                const SizedBox(width: 6),
+                                // Bouton « Mettre à la une » (payant, façon
+                                // publicité Facebook) — uniquement sur une
+                                // publication publiée.
+                                if (article.status == 'published')
+                                  IconButton(
+                                    tooltip: article.isFeatured
+                                        ? 'Publication à la une'
+                                        : 'Mettre à la une (payant)',
+                                    visualDensity: VisualDensity.compact,
+                                    iconSize: 20,
+                                    icon: Icon(
+                                      article.isFeatured
+                                          ? Icons.star_rounded
+                                          : Icons.star_border_rounded,
+                                      color: article.isFeatured
+                                          ? const Color(0xFFB45309)
+                                          : Colors.grey.shade600,
+                                    ),
+                                    onPressed: article.isFeatured
+                                        ? null
+                                        : () => showFeaturePublicationSheet(
+                                            context, ref, article),
+                                  ),
+                                const SizedBox(width: 4),
                                 Container(
                                   padding: const EdgeInsets.symmetric(
                                     horizontal: 8,
@@ -212,7 +268,7 @@ class MyArticlesScreen extends ConsumerWidget {
                                 else
                                   const _MetaChip(
                                     icon: Icons.money_off_rounded,
-                                    label: 'Gratuit',
+                                    label: 'Accès libre',
                                   ),
                               ],
                             ),
@@ -326,6 +382,141 @@ class MyArticlesScreen extends ConsumerWidget {
                                   ),
                                 ],
                               ),
+                            ),
+
+                            const SizedBox(height: 8),
+                            // ─── SUPPRESSION + REMISE À ZÉRO (éditeur) ────
+                            // L'éditeur peut supprimer définitivement une de
+                            // ses publications, ou remettre ses compteurs
+                            // (vues/téléchargements) à zéro.
+                            Row(
+                              spacing: 6,
+                              children: [
+                                Expanded(
+                                  child: OutlinedButton.icon(
+                                    icon: const Icon(Icons.refresh_rounded,
+                                        size: 15),
+                                    label: const Text('Réinitialiser stats',
+                                        style: TextStyle(fontSize: 11)),
+                                    onPressed: () async {
+                                      final ok = await showDialog<bool>(
+                                        context: context,
+                                        builder: (ctx) => AlertDialog(
+                                          title: const Text('Réinitialiser ?'),
+                                          content: const Text(
+                                              'Les vues et téléchargements de cette publication seront remis à zéro.'),
+                                          actions: [
+                                            TextButton(
+                                              onPressed: () =>
+                                                  Navigator.pop(ctx, false),
+                                              child: const Text('Annuler'),
+                                            ),
+                                            ElevatedButton(
+                                              onPressed: () =>
+                                                  Navigator.pop(ctx, true),
+                                              child:
+                                                  const Text('Réinitialiser'),
+                                            ),
+                                          ],
+                                        ),
+                                      );
+                                      if (ok != true) return;
+                                      try {
+                                        await ref
+                                            .read(
+                                                publisherPublicationsListProvider
+                                                    .notifier)
+                                            .resetStats(article.id);
+                                        if (context.mounted) {
+                                          ScaffoldMessenger.of(context)
+                                              .showSnackBar(
+                                            const SnackBar(
+                                              content: Text(
+                                                  'Statistiques remises à zéro ✓'),
+                                              backgroundColor: Colors.green,
+                                            ),
+                                          );
+                                        }
+                                      } catch (e) {
+                                        if (context.mounted) {
+                                          ScaffoldMessenger.of(context)
+                                              .showSnackBar(
+                                            SnackBar(
+                                              content: Text('Erreur : $e'),
+                                              backgroundColor: Colors.red,
+                                            ),
+                                          );
+                                        }
+                                      }
+                                    },
+                                  ),
+                                ),
+                                Expanded(
+                                  child: OutlinedButton.icon(
+                                    icon: const Icon(Icons.delete_outline,
+                                        size: 15),
+                                    label: const Text('Supprimer',
+                                        style: TextStyle(fontSize: 11)),
+                                    style: OutlinedButton.styleFrom(
+                                      foregroundColor: Colors.red.shade700,
+                                    ),
+                                    onPressed: () async {
+                                      final ok = await showDialog<bool>(
+                                        context: context,
+                                        builder: (ctx) => AlertDialog(
+                                          title: const Text(
+                                              'Supprimer définitivement ?'),
+                                          content: Text(
+                                              'La publication « ${article.title} » sera supprimée pour toujours.'),
+                                          actions: [
+                                            TextButton(
+                                              onPressed: () =>
+                                                  Navigator.pop(ctx, false),
+                                              child: const Text('Annuler'),
+                                            ),
+                                            ElevatedButton(
+                                              style: ElevatedButton.styleFrom(
+                                                  backgroundColor:
+                                                      Colors.red),
+                                              onPressed: () =>
+                                                  Navigator.pop(ctx, true),
+                                              child: const Text('Supprimer'),
+                                            ),
+                                          ],
+                                        ),
+                                      );
+                                      if (ok != true) return;
+                                      try {
+                                        await ref
+                                            .read(
+                                                publisherPublicationsListProvider
+                                                    .notifier)
+                                            .deletePublication(article.id);
+                                        if (context.mounted) {
+                                          ScaffoldMessenger.of(context)
+                                              .showSnackBar(
+                                            const SnackBar(
+                                              content: Text(
+                                                  'Publication supprimée ✓'),
+                                              backgroundColor: Colors.green,
+                                            ),
+                                          );
+                                        }
+                                      } catch (e) {
+                                        if (context.mounted) {
+                                          ScaffoldMessenger.of(context)
+                                              .showSnackBar(
+                                            SnackBar(
+                                              content: Text('Erreur : $e'),
+                                              backgroundColor: Colors.red,
+                                            ),
+                                          );
+                                        }
+                                      }
+                                    },
+                                  ),
+                                ),
+                              ],
                             ),
                           ],
                         ),

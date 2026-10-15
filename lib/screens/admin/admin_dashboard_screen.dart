@@ -1,11 +1,19 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../../core/services/auth_service.dart';
 
-class AdminDashboardScreen extends StatelessWidget {
+class AdminDashboardScreen extends ConsumerWidget {
   const AdminDashboardScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final user = ref.watch(authServiceProvider).currentUser;
+    final displayName = (user?.displayName?.isNotEmpty ?? false)
+        ? user!.displayName!
+        : (user?.username.isNotEmpty ?? false)
+            ? user!.username
+            : 'Admin';
     final cards = [
       _AdminCardData(
         title: 'Statistiques globales',
@@ -20,6 +28,18 @@ class AdminDashboardScreen extends StatelessWidget {
         route: '/admin/create-poster',
       ),
       _AdminCardData(
+        title: 'Vérifications éditeurs',
+        subtitle: "Valider ou rejeter les dossiers de légitimité (sous 24h)",
+        icon: Icons.fact_check_outlined,
+        route: '/admin/verifications',
+      ),
+      _AdminCardData(
+        title: 'Gestion des catégories',
+        subtitle: 'Créer, renommer ou supprimer les catégories de publications',
+        icon: Icons.category_rounded,
+        route: '/admin/categories',
+      ),
+      _AdminCardData(
         title: 'Gérer les éditeurs',
         subtitle: 'Voir, avertir, bannir ou débannir',
         icon: Icons.manage_accounts,
@@ -32,16 +52,16 @@ class AdminDashboardScreen extends StatelessWidget {
         route: '/admin/manage-users',
       ),
       _AdminCardData(
-        title: 'Fonctionnalités à venir',
-        subtitle: 'Suivre et proposer les prochaines fonctionnalités',
-        icon: Icons.construction_outlined,
-        route: '/admin/feature-roadmap',
-      ),
-      _AdminCardData(
         title: 'Modération des avis',
         subtitle: 'Consulter et supprimer les avis inappropriés',
         icon: Icons.reviews_outlined,
         route: '/admin/manage-reviews',
+      ),
+      _AdminCardData(
+        title: 'Mises en avant (À LA UNE)',
+        subtitle: 'Voir les promotions payantes, revenu et annulations',
+        icon: Icons.star_rounded,
+        route: '/admin/featured',
       ),
       _AdminCardData(
         title: 'Comptabilité',
@@ -87,16 +107,18 @@ class AdminDashboardScreen extends StatelessWidget {
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
-                      children: const [
+                      children: [
                         Text(
-                          'Bienvenue, Admin',
-                          style: TextStyle(
+                          'Bienvenue, $displayName',
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
                             color: Colors.white,
                             fontSize: 22,
                             fontWeight: FontWeight.bold,
                           ),
                         ),
-                        SizedBox(height: 8),
+                        const SizedBox(height: 8),
                         Text(
                           'Gérez les éditeurs, suivez leur activité et supervisez la plateforme.',
                           style: TextStyle(
